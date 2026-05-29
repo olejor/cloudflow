@@ -2,34 +2,307 @@ syntax = "proto3";
 
 package cloudflow.v1;
 
-message DhcpV4Event {
-  string message_type = 1;
-  string transaction_id = 2;
-  string client_mac = 3;
-  string client_ip = 4;
-  string your_ip = 5;
-  string server_ip = 6;
-  string relay_ip = 7;
-  string hostname = 8;
-  string vendor_class = 9;
-  uint32 lease_time_seconds = 10;
-  repeated DhcpOption options = 11;
+import "cloudflow/v1/common.proto";
+
+// A directly observed DHCPv4 packet. This is the primary v0.1 event type.
+message DhcpV4PacketEvent {
+  PacketObservation packet = 1;
+  DhcpV4Header header = 2;
+
+  // Raw options preserve wire order, duplicate options, option-overload source,
+  // malformed options, and unknown/vendor/private options.
+  repeated DhcpV4Option raw_options = 3;
+
+  // Best-effort decoded view of common options.
+  DhcpV4DecodedOptions decoded = 4;
+
+  // CloudFlow's derived interpretation of the observed packet.
+  DhcpV4Interpretation interpretation = 5;
+
+  repeated ParserWarning parser_warnings = 6;
+
+  // Optional raw DHCP/BOOTP payload bytes. May be disabled in production if the
+  // normalized fields and raw option values are sufficient.
+  bytes raw_dhcp_payload = 7;
+  bool raw_payload_truncated = 8;
 }
 
-message DhcpV6Event {
-  string message_type = 1;
-  string transaction_id = 2;
-  string client_duid = 3;
-  string server_duid = 4;
-  string link_address = 5;
-  string peer_address = 6;
-  repeated string assigned_addresses = 7;
-  repeated DhcpOption options = 8;
+message DhcpV4Header {
+  uint32 op = 1;
+  uint32 htype = 2;
+  uint32 hlen = 3;
+  uint32 hops = 4;
+  uint32 xid = 5;
+  uint32 secs = 6;
+  uint32 flags = 7;
+
+  string ciaddr = 8;
+  string yiaddr = 9;
+  string siaddr = 10;
+  string giaddr = 11;
+
+  // chaddr is 16 bytes on the wire. chaddr_mac is populated when htype/hlen
+  // indicate an Ethernet MAC address.
+  bytes chaddr_raw = 12;
+  string chaddr_mac = 13;
+
+  bytes sname_raw = 14;
+  string sname_text = 15;
+
+  bytes file_raw = 16;
+  string file_text = 17;
+
+  bool magic_cookie_present = 18;
 }
 
-message DhcpOption {
+message DhcpV4Option {
+  enum SourceField {
+    SOURCE_FIELD_UNSPECIFIED = 0;
+    SOURCE_FIELD_OPTIONS = 1;
+    SOURCE_FIELD_SNAME = 2;
+    SOURCE_FIELD_FILE = 3;
+  }
+
   uint32 code = 1;
   string name = 2;
+  uint32 length = 3;
+  bytes raw_value = 4;
+  SourceField source_field = 5;
+
+  // Position among options as observed in the packet/source field.
+  uint32 ordinal = 6;
+
+  // True if the option length/value could not be parsed cleanly.
+  bool malformed = 7;
+
+  // True if this option was one fragment of a long option that must be
+  // concatenated with other instances before decoding.
+  bool long_option_fragment = 8;
+}
+
+message DhcpV4DecodedOptions {
+  enum MessageType {
+    MESSAGE_TYPE_UNSPECIFIED = 0;
+    DISCOVER = 1;
+    OFFER = 2;
+    REQUEST = 3;
+    DECLINE = 4;
+    ACK = 5;
+    NAK = 6;
+    RELEASE = 7;
+    INFORM = 8;
+    FORCERENEW = 9;
+    LEASEQUERY = 10;
+    LEASEUNASSIGNED = 11;
+    LEASEUNKNOWN = 12;
+    LEASEACTIVE = 13;
+  }
+
+  MessageType message_type = 1;
+  string message_type_name = 2;
+
+  string subnet_mask = 3;
+  repeated string routers = 4;
+  repeated string domain_name_servers = 5;
+  string host_name = 6;
+  string domain_name = 7;
+
+  string requested_ip_address = 8;
+  uint32 ip_address_lease_time_seconds = 9;
+  uint32 option_overload = 10;
+  string server_identifier = 11;
+  repeated uint32 parameter_request_list = 12;
+  string message = 13;
+  uint32 max_dhcp_message_size = 14;
+  uint32 renewal_time_t1_seconds = 15;
+  uint32 rebinding_time_t2_seconds = 16;
+
+  // Option 60.
+  string vendor_class_identifier = 17;
+
+  // Option 61.
+  bytes client_identifier_raw = 18;
+  string client_identifier_text = 19;
+
+  // Option 43.
+  DhcpV4VendorSpecificInformation vendor_specific_information = 20;
+
+  string tftp_server_name = 21;
+  string bootfile_name = 22;
+
+  // Option 81.
+  DhcpV4ClientFqdn client_fqdn = 23;
+
+  // Option 82.
+  DhcpV4RelayAgentInformation relay_agent_information = 24;
+
+  repeated string domain_search = 25;
+  repeated DhcpV4ClasslessStaticRoute classless_static_routes = 26;
+  repeated DhcpV4ClasslessStaticRoute microsoft_classless_static_routes = 27;
+
+  // Option 252 is commonly used for WPAD/proxy autodiscovery.
+  string proxy_autodiscovery = 28;
+}
+
+message DhcpV4VendorSpecificInformation {
+  bytes raw_value = 1;
+
+  // Usually derived from option 60, when present.
+  string vendor_class_identifier = 2;
+
+  repeated DhcpV4VendorSuboption suboptions = 3;
+
+  bool decode_attempted = 4;
+  bool decode_success = 5;
+  repeated ParserWarning parser_warnings = 6;
+}
+
+message DhcpV4VendorSuboption {
+  uint32 code = 1;
+  uint32 length = 2;
   bytes raw_value = 3;
-  string text_value = 4;
+  string decoded_value = 4;
+}
+
+message DhcpV4RelayAgentInformation {
+  bytes raw_value = 1;
+  repeated DhcpV4RelayAgentSuboption suboptions = 2;
+
+  string circuit_id = 3;
+  string remote_id = 4;
+  string subscriber_id = 5;
+}
+
+message DhcpV4RelayAgentSuboption {
+  uint32 code = 1;
+  string name = 2;
+  uint32 length = 3;
+  bytes raw_value = 4;
+  string decoded_value = 5;
+  bool malformed = 6;
+}
+
+message DhcpV4ClientFqdn {
+  uint32 flags = 1;
+  uint32 rcode1 = 2;
+  uint32 rcode2 = 3;
+  string domain_name = 4;
+  bytes raw_domain_name = 5;
+}
+
+message DhcpV4ClasslessStaticRoute {
+  uint32 destination_prefix_length = 1;
+  string destination = 2;
+  string router = 3;
+  bytes raw_value = 4;
+}
+
+message DhcpV4Interpretation {
+  // Example: "dhcpv4.ack.observed".
+  string event_type = 1;
+
+  // Stable-ish packet transaction key for correlating DISCOVER/OFFER/REQUEST/ACK.
+  string transaction_key = 2;
+
+  // Best-effort client key derived from client-id, chaddr, relay context, etc.
+  string normalized_client_key = 3;
+
+  string lease_address = 4;
+  bool is_relayed = 5;
+  bool is_broadcast = 6;
+  bool is_renewal = 7;
+  bool is_rebind = 8;
+}
+
+// Derived event that can be produced later by correlating multiple packet events.
+// v0.1 does not need to emit this, but reserving the type keeps packet facts and
+// lease outcomes separate.
+message DhcpV4LeaseEvent {
+  string transaction_key = 1;
+  string normalized_client_key = 2;
+  string client_mac = 3;
+  bytes client_identifier_raw = 4;
+  string relay_ip = 5;
+  string assigned_ip = 6;
+  string server_identifier = 7;
+  uint32 lease_time_seconds = 8;
+  int64 lease_start_time_unix_nano = 9;
+  int64 lease_end_time_unix_nano = 10;
+  repeated string packet_event_ids = 11;
+}
+
+// A directly observed DHCPv6 packet. Included so the v0.1 DHCP source can cover
+// DHCPv4 and DHCPv6 while keeping the same observed/decoded/interpreted pattern.
+message DhcpV6PacketEvent {
+  PacketObservation packet = 1;
+  DhcpV6Header header = 2;
+  repeated DhcpV6Option raw_options = 3;
+  DhcpV6DecodedOptions decoded = 4;
+  repeated ParserWarning parser_warnings = 5;
+  bytes raw_dhcp_payload = 6;
+  bool raw_payload_truncated = 7;
+}
+
+message DhcpV6Header {
+  enum MessageType {
+    MESSAGE_TYPE_UNSPECIFIED = 0;
+    SOLICIT = 1;
+    ADVERTISE = 2;
+    REQUEST = 3;
+    CONFIRM = 4;
+    RENEW = 5;
+    REBIND = 6;
+    REPLY = 7;
+    RELEASE = 8;
+    DECLINE = 9;
+    RECONFIGURE = 10;
+    INFORMATION_REQUEST = 11;
+    RELAY_FORW = 12;
+    RELAY_REPL = 13;
+    LEASEQUERY = 14;
+    LEASEQUERY_REPLY = 15;
+    LEASEQUERY_DONE = 16;
+    LEASEQUERY_DATA = 17;
+  }
+
+  MessageType message_type = 1;
+
+  // Present for normal client/server messages.
+  uint32 transaction_id = 2;
+
+  // Present for relay-forward/relay-reply messages.
+  uint32 hop_count = 3;
+  string link_address = 4;
+  string peer_address = 5;
+}
+
+message DhcpV6Option {
+  uint32 code = 1;
+  string name = 2;
+  uint32 length = 3;
+  bytes raw_value = 4;
+  uint32 ordinal = 5;
+  bool malformed = 6;
+}
+
+message DhcpV6DecodedOptions {
+  bytes client_duid = 1;
+  bytes server_duid = 2;
+  repeated string assigned_addresses = 3;
+  repeated uint32 option_request_option_codes = 4;
+  string vendor_class = 5;
+  DhcpV6VendorOptions vendor_options = 6;
+}
+
+message DhcpV6VendorOptions {
+  uint32 enterprise_number = 1;
+  repeated DhcpV6VendorSuboption suboptions = 2;
+  bytes raw_value = 3;
+}
+
+message DhcpV6VendorSuboption {
+  uint32 code = 1;
+  uint32 length = 2;
+  bytes raw_value = 3;
+  string decoded_value = 4;
 }
