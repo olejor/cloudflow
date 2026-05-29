@@ -1,0 +1,26 @@
+# build artifacts
+build/
+dist/
+target/
+*.o
+*.so
+*.a
+*.exe
+
+# generated protobuf bindings
+gen/
+
+# local config and secrets
+*.env
+*.local.yaml
+.env
+
+# packet captures - avoid committing sensitive captures by accident
+*.pcap
+*.pcapng
+
+# editor files
+.vscode/
+.idea/
+*.swp
+.DS_Store

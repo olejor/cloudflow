@@ -1,0 +1,10 @@
+redis:
+  endpoints:
+    - redis01:6379
+    - redis02:6379
+    - redis03:6379
+  streams:
+    dhcpv4: cloudflow:v1:wire:dhcpv4
+    dhcpv6: cloudflow:v1:wire:dhcpv6
+  consumer_groups:
+    splunk: sink-splunk

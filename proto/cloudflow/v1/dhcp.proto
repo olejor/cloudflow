@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package cloudflow.v1;
+
+message DhcpV4Event {
+  string message_type = 1;
+  string transaction_id = 2;
+  string client_mac = 3;
+  string client_ip = 4;
+  string your_ip = 5;
+  string server_ip = 6;
+  string relay_ip = 7;
+  string hostname = 8;
+  string vendor_class = 9;
+  uint32 lease_time_seconds = 10;
+  repeated DhcpOption options = 11;
+}
+
+message DhcpV6Event {
+  string message_type = 1;
+  string transaction_id = 2;
+  string client_duid = 3;
+  string server_duid = 4;
+  string link_address = 5;
+  string peer_address = 6;
+  repeated string assigned_addresses = 7;
+  repeated DhcpOption options = 8;
+}
+
+message DhcpOption {
+  uint32 code = 1;
+  string name = 2;
+  bytes raw_value = 3;
+  string text_value = 4;
+}

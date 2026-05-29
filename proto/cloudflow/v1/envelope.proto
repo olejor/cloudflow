@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package cloudflow.v1;
+
+import "cloudflow/v1/dhcp.proto";
+
+message EventEnvelope {
+  string event_id = 1;
+  uint32 schema_version = 2;
+  string source_type = 3;
+  string source_host = 4;
+  string capture_interface = 5;
+  string observation_method = 6;
+  int64 observed_time_unix_nano = 7;
+  int64 ingest_time_unix_nano = 8;
+  string event_type = 9;
+
+  oneof payload {
+    DhcpV4Event dhcpv4 = 20;
+    DhcpV6Event dhcpv6 = 21;
+  }
+}
