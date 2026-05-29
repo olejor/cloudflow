@@ -1,0 +1,17 @@
+[Unit]
+Description=CloudFlow Splunk sink
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/cloudflow/splunk-sink.env
+ExecStart=/usr/local/bin/cloudflow-sink-splunk --config /etc/cloudflow/splunk-sink.yaml
+Restart=always
+RestartSec=5
+User=cloudflow
+Group=cloudflow
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
