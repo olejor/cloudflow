@@ -2,7 +2,7 @@
 
 CloudFlow events are wire-observed facts.
 
-The canonical event wrapper is `cloudflow.v1.EventEnvelope`.
+The canonical event wrapper is `cloudflow.v1.CloudFlowEvent`.
 
 Required concepts:
 
