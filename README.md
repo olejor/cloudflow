@@ -64,6 +64,7 @@ cloudflow/
 ├── proto/
 │   └── cloudflow/
 │       └── v1/
+│           ├── common.proto
 │           ├── envelope.proto
 │           └── dhcp.proto
 │
@@ -140,6 +141,8 @@ The queues between these stages must be bounded. If backpressure appears, the pr
 
 CloudFlow events represent wire-observed facts, not application claims.
 
+The canonical Redis payload wrapper is `cloudflow.v1.CloudFlowEvent`.
+
 Minimum event envelope fields:
 
 ```text
@@ -151,19 +154,26 @@ capture_interface
 observation_method
 observed_time_unix_nano
 ingest_time_unix_nano
+event_type
+visibility
+confidence
+payload_schema
 payload
 ```
 
-For DHCP, the payload should distinguish DHCPv4 and DHCPv6 while preserving a shared operational model where possible.
+For DHCP, the payload should distinguish DHCPv4 and DHCPv6 while preserving both the packet-level wire observation and a decoded operational view where possible.
 
 Example event classes:
 
 ```text
+dhcpv4.packet.observed
 dhcpv4.discover.observed
 dhcpv4.offer.observed
 dhcpv4.request.observed
 dhcpv4.ack.observed
 dhcpv4.nak.observed
+dhcpv4.lease.derived
+dhcpv6.packet.observed
 dhcpv6.solicit.observed
 dhcpv6.advertise.observed
 dhcpv6.request.observed
@@ -184,7 +194,7 @@ cloudflow:v1:wire:dhcpv6
 Suggested fields:
 
 ```text
-schema      cloudflow.v1.EventEnvelope
+schema      cloudflow.v1.CloudFlowEvent
 version     1
 encoding    protobuf
 payload     <protobuf bytes>
@@ -193,7 +203,7 @@ payload     <protobuf bytes>
 Suggested producer behavior:
 
 ```text
-XADD cloudflow:v1:wire:dhcpv4 MAXLEN ~ <limit> * schema cloudflow.v1.EventEnvelope version 1 encoding protobuf payload <bytes>
+XADD cloudflow:v1:wire:dhcpv4 MAXLEN ~ <limit> * schema cloudflow.v1.CloudFlowEvent version 1 encoding protobuf payload <bytes>
 ```
 
 Suggested consumer behavior:
@@ -297,7 +307,7 @@ Recommended first milestone:
 ```text
 Capture one DHCPv4 packet
   -> parse message type and client MAC
-  -> encode EventEnvelope protobuf
+  -> encode CloudFlowEvent protobuf
   -> XADD to Redis
   -> read with Splunk sink
   -> emit JSON to stdout
