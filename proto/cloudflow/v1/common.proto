@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package cloudflow.v1;
+
+// VisibilityLevel describes how much of the original traffic CloudFlow could
+// directly observe. DHCPv4/DHCPv6 packet events should normally use
+// VISIBILITY_PACKET_PAYLOAD because the protocol payload is unencrypted.
+enum VisibilityLevel {
+  VISIBILITY_LEVEL_UNSPECIFIED = 0;
+  VISIBILITY_PACKET_METADATA = 1;
+  VISIBILITY_HANDSHAKE_METADATA = 2;
+  VISIBILITY_CLASSIFIED_FLOW = 3;
+  VISIBILITY_PACKET_PAYLOAD = 4;
+  VISIBILITY_DECRYPTED_PAYLOAD = 5;
+  VISIBILITY_ENDPOINT_OBSERVED = 6;
+}
+
+// ObservationConfidence distinguishes directly observed wire facts from
+// derived or inferred values.
+enum ObservationConfidence {
+  OBSERVATION_CONFIDENCE_UNSPECIFIED = 0;
+  OBSERVATION_CONFIDENCE_OBSERVED = 1;
+  OBSERVATION_CONFIDENCE_DERIVED = 2;
+  OBSERVATION_CONFIDENCE_INFERRED = 3;
+}
+
+message EventEnvelope {
+  string event_id = 1;
+  uint32 schema_version = 2;
+
+  // Examples: "dhcpv4", "dhcpv6".
+  string source_type = 3;
+  string source_host = 4;
+  string source_instance = 5;
+  string capture_interface = 6;
+
+  // Examples: "rxring", "af_packet", "pcap".
+  string observation_method = 7;
+
+  // Canonical event time from the capture path, as Unix epoch nanoseconds.
+  int64 observed_time_unix_nano = 8;
+
+  // Time CloudFlow created/enqueued the event, as Unix epoch nanoseconds.
+  int64 ingest_time_unix_nano = 9;
+
+  // Examples: "dhcpv4.packet.observed", "dhcpv4.lease.derived".
+  string event_type = 10;
+
+  VisibilityLevel visibility = 11;
+  ObservationConfidence confidence = 12;
+
+  // Fully qualified protobuf message name of the payload.
+  // Example: "cloudflow.v1.DhcpV4PacketEvent".
+  string payload_schema = 13;
+
+  // Redis stream where the event was written, when known.
+  // Example: "cloudflow:v1:wire:dhcpv4".
+  string stream_name = 14;
+}
+
+enum CaptureDirection {
+  CAPTURE_DIRECTION_UNSPECIFIED = 0;
+  CAPTURE_DIRECTION_INGRESS = 1;
+  CAPTURE_DIRECTION_EGRESS = 2;
+  CAPTURE_DIRECTION_UNKNOWN = 3;
+}
+
+message PacketObservation {
+  // Packet timestamp from capture path, as Unix epoch nanoseconds.
+  int64 observed_time_unix_nano = 1;
+
+  CaptureDirection capture_direction = 2;
+
+  string l2_src_mac = 3;
+  string l2_dst_mac = 4;
+  repeated uint32 vlan_ids = 5;
+  uint32 ethertype = 6;
+
+  string ip_src = 7;
+  string ip_dst = 8;
+  uint32 ip_protocol = 9;
+
+  uint32 udp_src_port = 10;
+  uint32 udp_dst_port = 11;
+
+  uint64 packet_len = 12;
+  uint64 captured_len = 13;
+  bool truncated = 14;
+
+  uint32 rx_queue = 15;
+  uint64 rx_hash = 16;
+
+  // Optional monotonically increasing counter from the collector, if available.
+  uint64 capture_sequence = 17;
+
+  // Optional drop counter value sampled near this packet, if available.
+  uint64 capture_drop_counter = 18;
+}
+
+message ParserWarning {
+  string code = 1;
+  string message = 2;
+  string field_path = 3;
+  bytes raw_context = 4;
+}
