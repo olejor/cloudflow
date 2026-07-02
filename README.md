@@ -293,6 +293,10 @@ Inspect stream depth, pending entries, consumer groups, and recent events.
 
 ## Getting started
 
+The implementation design lives in `docs/design/` — start with
+`docs/design/00-overview.md`, which breaks the v0.1 scope into independent
+work packages with a dependency graph and milestone plan.
+
 This repository is currently a skeleton. A first implementation should add:
 
 1. protobuf generation tooling,

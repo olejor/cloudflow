@@ -8,6 +8,8 @@ rx-reader -> event-formatter -> redis-producer -> Redis Streams -> cloudflow-sin
 
 The source side must stay fast and destination-agnostic. The sink side owns destination-specific transformation and delivery semantics.
 
+The detailed component design and work-package breakdown for v0.1 is in `docs/design/` (start with `00-overview.md`).
+
 ## Source pipeline
 
 - `rx-reader`: captures packets from the configured interface/capture mechanism.
