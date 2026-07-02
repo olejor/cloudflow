@@ -2,15 +2,16 @@
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
-SUBDIRS := libs/cloudflow-core
+SUBDIRS := libs/cloudflow-core tests/unit
 
 proto:
 	./scripts/generate-protobuf.sh
 
-# test builds and runs all unit test binaries; today that is delegated to
-# scripts/run-integration-tests.sh. Per-WP unit tests (tests/unit/) get
-# wired into that script as they land.
+# test builds and runs all unit test binaries first, then delegates to
+# scripts/run-integration-tests.sh. Per-WP unit tests (tests/unit/) are
+# wired in here as they land -- WP-03 adds the first one.
 test:
+	$(MAKE) -C tests/unit test-unit
 	./scripts/run-integration-tests.sh
 
 bench:
