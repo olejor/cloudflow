@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloudflow-stream-inspect"
+version = "0.1.0"
+description = "Inspect CloudFlow Redis streams and consumer groups: XINFO/XPENDING reporting, watch mode, pending-entry detail (WP-13)."
+requires-python = ">=3.9"
+dependencies = [
+    "redis",
+    "PyYAML",
+]
+
+[project.scripts]
+cloudflow-stream-inspect = "cloudflow_stream_inspect.cli:main"
+
+[tool.setuptools]
+packages = ["cloudflow_stream_inspect"]
+
+[tool.setuptools.package-dir]
+cloudflow_stream_inspect = "src/cloudflow_stream_inspect"
