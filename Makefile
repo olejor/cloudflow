@@ -2,7 +2,7 @@
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
-SUBDIRS := libs/cloudflow-core tests/unit
+SUBDIRS := libs/cloudflow-core libs/cloudflow-codec tests/unit
 
 proto:
 	./scripts/generate-protobuf.sh
