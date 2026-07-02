@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 #define CLOUDFLOW_PACKET_MAX_SIZE 2048u
-#define CLOUDFLOW_EVENT_MAX_SIZE 4096u
+#define CLOUDFLOW_EVENT_MAX_SIZE 8192u
 #define CLOUDFLOW_EVENT_TYPE_MAX 64u
 
 #ifndef ETH_P_IP

@@ -147,10 +147,11 @@ queue separately). Delete the top-level `src/` when done.
 **Goal.** Make the existing `cf_queue` provably correct off x86 and covered by
 tests. It is the only concurrency primitive in the source pipeline.
 
-**Background.** The current `cf_queue.c` (and the legacy `queue.c` it mirrors)
-uses default sequentially-consistent atomics; correctness of the payload copy
-relative to head/tail publication should be made explicit with
-acquire/release ordering, which is also faster.
+**Background.** The legacy `queue.c` uses default sequentially-consistent
+atomics. Implementation finding (WP-04): the repo's `cf_queue.c` already uses
+correct acquire/release pairing — so this WP resolved to verifying that
+ordering (TSan-clean stress test), documenting the pairing argument in
+comments, and adding the test coverage below.
 
 **Deliverables.**
 

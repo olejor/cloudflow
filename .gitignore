@@ -7,8 +7,11 @@ target/
 *.a
 *.exe
 
-# generated protobuf bindings
-gen/
+# NOTE: generated protobuf bindings (libs/cloudflow-codec/gen/,
+# sinks/cloudflow-sink-splunk/src/cloudflow_pb/) are intentionally NOT
+# ignored -- per Decision D2 (docs/design/00-overview.md) generated code is
+# committed so builds and CI never need protoc. See WP-02
+# (docs/design/01-foundations.md) and scripts/generate-protobuf.sh.
 
 # local config and secrets
 *.env
@@ -24,3 +27,7 @@ gen/
 .idea/
 *.swp
 .DS_Store
+
+# Python bytecode caches
+__pycache__/
+*.pyc

@@ -293,6 +293,17 @@ Inspect stream depth, pending entries, consumer groups, and recent events.
 
 ## Getting started
 
+### Build dependencies
+
+On Debian/Ubuntu:
+
+```sh
+sudo apt-get install -y gcc make pkg-config protobuf-compiler \
+    protobuf-c-compiler libprotobuf-c-dev libhiredis-dev libyaml-dev \
+    libcunit1-dev python3 python3-pip
+python3 -m pip install protobuf redis requests PyYAML
+```
+
 The implementation design lives in `docs/design/` — start with
 `docs/design/00-overview.md`, which breaks the v0.1 scope into independent
 work packages with a dependency graph and milestone plan.
