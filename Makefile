@@ -1,4 +1,4 @@
-.PHONY: proto test test-tsan bench local-redis build clean
+.PHONY: proto test test-tsan test-asan bench local-redis build clean
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
@@ -20,6 +20,14 @@ test:
 # builds are slow and not part of the default CI-clean-build loop.
 test-tsan:
 	$(MAKE) -C tests/unit test-tsan
+
+# WP-16: ASan+UBSan build of all four unit test binaries (core, codec,
+# queue, decap -- see tests/unit/Makefile's test-asan target for why this
+# one runs all suites, unlike test-tsan which only runs the queue stress
+# test). Kept separate from `test` for the same reason test-tsan is: slow,
+# instrumented, not part of the default CI-clean-build loop.
+test-asan:
+	$(MAKE) -C tests/unit test-asan
 
 bench:
 	./scripts/benchmark-xadd.sh

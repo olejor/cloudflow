@@ -18,6 +18,13 @@
 # to see the accesses on both sides of the ring buffer. It is not part of
 # `all`/test-unit -- it is its own target, invoked by the top-level
 # Makefile's test-tsan target.
+#
+# test-asan (WP-16) follows the same "compile the library sources straight
+# into the test binary" approach, but -- unlike test-tsan, which only
+# rebuilds the queue stress test -- it rebuilds and runs all four suites
+# (core, codec, queue, decap), since ASan/UBSan misuse (buffer overflows,
+# UB, leaks) can hide in any of them, not just the queue. It is its own
+# target, invoked by the top-level Makefile's test-asan target.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 include $(ROOT)/mk/toolchain.mk
@@ -70,7 +77,7 @@ DECAP_TEST_LDLIBS   := -lcunit
 
 DECAP_BIN := $(BUILD_DIR)/cf_decap_test
 
-.PHONY: all test-unit test-tsan clean
+.PHONY: all test-unit test-tsan test-asan clean
 
 all: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN)
 
@@ -158,6 +165,109 @@ $(BUILD_DIR)/cf_queue.tsan.o: $(CORE_DIR)/cf_queue.c | $(BUILD_DIR)
 
 $(TSAN_BIN): $(BUILD_DIR)/cf_queue_test.tsan.o $(BUILD_DIR)/cf_queue.tsan.o
 	$(CC) $(TSAN_LDFLAGS) -o $@ $(BUILD_DIR)/cf_queue_test.tsan.o $(BUILD_DIR)/cf_queue.tsan.o $(TSAN_LDLIBS)
+
+# ---------------------------------------------------------------------------
+# test-asan (WP-16)
+#
+# ASan+UBSan build of all four unit test binaries. -O1 -g matches the
+# TSan recipe above (ASan's own recommendation: high enough to run at a
+# reasonable speed, low enough that loads/stores under test survive
+# unfolded); -fno-omit-frame-pointer keeps ASan's stack traces symbolized.
+# Each binary compiles the library sources it needs straight in (same
+# reasoning as test-tsan: linking the plain, uninstrumented .a built by
+# `make build` would leave the library code itself uninstrumented), using a
+# per-binary object suffix (asan_<binary>_<source>.o) so the four binaries'
+# objects -- several of which share a source basename (e.g. cf_queue.c is
+# compiled for both the queue binary and, indirectly, nothing else here) --
+# never collide in $(BUILD_DIR).
+#
+# As with test-tsan, the hardened link flags from mk/toolchain.mk are kept
+# on the theory that they link cleanly with -fsanitize=address,undefined on
+# this toolchain (gcc 13 / glibc, tested); if a future toolchain's link
+# fails with them, drop $(HARDEN_LDFLAGS)/-pie for these binaries only and
+# note why here.
+ASAN_CFLAGS   := $(CSTD) $(WARN_FLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
+ASAN_LDFLAGS  := -fsanitize=address,undefined $(LDFLAGS)
+ASAN_LDLIBS   := -lcunit
+
+# -- core (cf_core_test + the core lib sources it actually exercises: the
+# core suites cover sha256/event-id/log/time, not the queue, so cf_queue.c
+# is intentionally left out here -- it gets its own instrumented build
+# below, under the queue binary.) --
+CORE_ASAN_TEST_SOURCES := cf_core_test.c cf_sha256_test.c cf_event_id_test.c cf_log_test.c cf_time_test.c
+CORE_ASAN_LIB_SOURCES  := cloudflow.c cf_time.c cf_sync.c cf_log.c cf_event_id.c sha256.c
+
+CORE_ASAN_OBJECTS := $(addprefix $(BUILD_DIR)/asan_core_,$(CORE_ASAN_TEST_SOURCES:.c=.o)) \
+                      $(addprefix $(BUILD_DIR)/asan_core_,$(CORE_ASAN_LIB_SOURCES:.c=.o))
+
+CORE_ASAN_BIN := $(BUILD_DIR)/cf_core_test_asan
+
+$(BUILD_DIR)/asan_core_%.o: %.c | $(BUILD_DIR)
+	$(CC) $(ASAN_CFLAGS) -I$(CORE_DIR) -c $< -o $@
+
+$(BUILD_DIR)/asan_core_%.o: $(CORE_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(ASAN_CFLAGS) -I$(CORE_DIR) -c $< -o $@
+
+$(CORE_ASAN_BIN): $(CORE_ASAN_OBJECTS)
+	$(CC) $(ASAN_LDFLAGS) -o $@ $(CORE_ASAN_OBJECTS) $(ASAN_LDLIBS)
+
+# -- codec (cf_codec_test + the generated protobuf-c sources) --
+CODEC_ASAN_SOURCES := cf_codec_test.c
+CODEC_ASAN_GEN_SOURCES := $(notdir $(wildcard $(CODEC_GEN_DIR)/cloudflow/v1/*.pb-c.c))
+
+CODEC_ASAN_OBJECTS := $(addprefix $(BUILD_DIR)/asan_codec_,$(CODEC_ASAN_SOURCES:.c=.o)) \
+                       $(addprefix $(BUILD_DIR)/asan_codec_,$(CODEC_ASAN_GEN_SOURCES:.c=.o))
+
+CODEC_ASAN_CFLAGS := $(ASAN_CFLAGS) -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c)
+CODEC_ASAN_LDLIBS := -lcunit $(shell pkg-config --libs libprotobuf-c)
+
+CODEC_ASAN_BIN := $(BUILD_DIR)/cf_codec_test_asan
+
+$(BUILD_DIR)/asan_codec_%.o: %.c | $(BUILD_DIR)
+	$(CC) $(CODEC_ASAN_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/asan_codec_%.o: $(CODEC_GEN_DIR)/cloudflow/v1/%.c | $(BUILD_DIR)
+	$(CC) $(CODEC_ASAN_CFLAGS) -c $< -o $@
+
+$(CODEC_ASAN_BIN): $(CODEC_ASAN_OBJECTS)
+	$(CC) $(ASAN_LDFLAGS) -o $@ $(CODEC_ASAN_OBJECTS) $(CODEC_ASAN_LDLIBS)
+
+# -- queue (cf_queue_test + cf_queue.c, instrumented -- the 2-thread stress
+# test needs pthread on top of the base ASan flags) --
+QUEUE_ASAN_CFLAGS  := $(ASAN_CFLAGS) -pthread -I$(CORE_DIR)
+QUEUE_ASAN_LDFLAGS := $(ASAN_LDFLAGS) -pthread
+QUEUE_ASAN_LDLIBS  := -lcunit -pthread
+
+QUEUE_ASAN_BIN := $(BUILD_DIR)/cf_queue_test_asan
+
+$(BUILD_DIR)/asan_queue_cf_queue_test.o: cf_queue_test.c | $(BUILD_DIR)
+	$(CC) $(QUEUE_ASAN_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/asan_queue_cf_queue.o: $(CORE_DIR)/cf_queue.c | $(BUILD_DIR)
+	$(CC) $(QUEUE_ASAN_CFLAGS) -c $< -o $@
+
+$(QUEUE_ASAN_BIN): $(BUILD_DIR)/asan_queue_cf_queue_test.o $(BUILD_DIR)/asan_queue_cf_queue.o
+	$(CC) $(QUEUE_ASAN_LDFLAGS) -o $@ $(BUILD_DIR)/asan_queue_cf_queue_test.o $(BUILD_DIR)/asan_queue_cf_queue.o $(QUEUE_ASAN_LDLIBS)
+
+# -- decap (cf_decap_test + cf_decap.c, cf_ipfmt.c) --
+DECAP_ASAN_CFLAGS := $(ASAN_CFLAGS) -I$(PACKET_DIR)
+
+DECAP_ASAN_BIN := $(BUILD_DIR)/cf_decap_test_asan
+
+$(BUILD_DIR)/asan_decap_%.o: %.c | $(BUILD_DIR)
+	$(CC) $(DECAP_ASAN_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/asan_decap_%.o: $(PACKET_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(DECAP_ASAN_CFLAGS) -c $< -o $@
+
+$(DECAP_ASAN_BIN): $(BUILD_DIR)/asan_decap_cf_decap_test.o $(BUILD_DIR)/asan_decap_cf_decap.o $(BUILD_DIR)/asan_decap_cf_ipfmt.o
+	$(CC) $(ASAN_LDFLAGS) -o $@ $(BUILD_DIR)/asan_decap_cf_decap_test.o $(BUILD_DIR)/asan_decap_cf_decap.o $(BUILD_DIR)/asan_decap_cf_ipfmt.o $(ASAN_LDLIBS)
+
+test-asan: $(CORE_ASAN_BIN) $(CODEC_ASAN_BIN) $(QUEUE_ASAN_BIN) $(DECAP_ASAN_BIN)
+	./$(CORE_ASAN_BIN)
+	./$(CODEC_ASAN_BIN)
+	./$(QUEUE_ASAN_BIN)
+	./$(DECAP_ASAN_BIN)
 
 $(BUILD_DIR):
 	mkdir -p $@
