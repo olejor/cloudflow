@@ -6,5 +6,7 @@ redis:
   streams:
     dhcpv4: cloudflow:v1:wire:dhcpv4
     dhcpv6: cloudflow:v1:wire:dhcpv6
+  deadletter_streams:
+    splunk: cloudflow:v1:deadletter:sink-splunk
   consumer_groups:
     splunk: sink-splunk

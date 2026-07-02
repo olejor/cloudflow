@@ -185,7 +185,7 @@ Use one consumer group per sink type. Do not make different sinks share a consum
 A Redis stream entry should contain enough metadata to decode the payload:
 
 ```text
-schema    cloudflow.v1.EventEnvelope
+schema    cloudflow.v1.CloudFlowEvent
 version   1
 encoding  protobuf
 payload   <protobuf bytes>
