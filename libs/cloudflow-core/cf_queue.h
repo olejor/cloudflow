@@ -17,6 +17,14 @@ int cf_queue_init(cf_queue_t *queue, size_t capacity, size_t element_size);
 void cf_queue_destroy(cf_queue_t *queue);
 int cf_queue_push(cf_queue_t *queue, const void *element);
 int cf_queue_pop(cf_queue_t *queue, void *element);
+// Returns the number of elements currently queued. When called concurrently
+// with the producer and/or consumer thread this is an approximate snapshot:
+// head and tail are loaded with acquire ordering (each pairs with the
+// matching release store, so the read is never garbage), but nothing
+// prevents either index from advancing between the two loads or immediately
+// after the function returns. Treat the result as "at least this many a
+// moment ago" for metrics/logging, never as a precondition for correctness
+// (push/pop already do their own full/empty checks atomically).
 size_t cf_queue_length(const cf_queue_t *queue);
 size_t cf_queue_capacity(const cf_queue_t *queue);
 

@@ -1,4 +1,4 @@
-.PHONY: proto test bench local-redis build clean
+.PHONY: proto test test-tsan bench local-redis build clean
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
@@ -13,6 +13,13 @@ proto:
 test:
 	$(MAKE) -C tests/unit test-unit
 	./scripts/run-integration-tests.sh
+
+# WP-04: rebuilds the cf_queue SPSC stress test with -fsanitize=thread
+# (queue code compiled in directly, not linked from the .a -- see
+# tests/unit/Makefile) and runs it. Kept separate from `test` since TSan
+# builds are slow and not part of the default CI-clean-build loop.
+test-tsan:
+	$(MAKE) -C tests/unit test-tsan
 
 bench:
 	./scripts/benchmark-xadd.sh
