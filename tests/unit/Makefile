@@ -6,10 +6,11 @@
 # mk/toolchain.mk, extend CPPFLAGS/LDLIBS rather than overriding
 # CFLAGS/LDFLAGS.
 #
-# Three independent CUnit binaries are built so this file's core-test
+# Four independent CUnit binaries are built so this file's core-test
 # SOURCES list doesn't need to change as later WPs land: build/cf_core_test
-# (WP-03), build/cf_codec_test (WP-02), and build/cf_queue_test (WP-04).
-# test-unit runs all three, plus the Python codec round-trip check.
+# (WP-03), build/cf_codec_test (WP-02), build/cf_queue_test (WP-04), and
+# build/cf_decap_test (WP-05). test-unit runs all four, plus the Python
+# codec round-trip check.
 #
 # test-tsan (WP-04) is a separate target/binary: it recompiles cf_queue.c
 # and cf_queue_test.c with -fsanitize=thread instead of linking
@@ -27,6 +28,9 @@ CORE_LIB := $(CORE_DIR)/build/libcloudflow-core.a
 CODEC_DIR     := $(ROOT)/libs/cloudflow-codec
 CODEC_GEN_DIR := $(CODEC_DIR)/gen
 CODEC_LIB     := $(CODEC_DIR)/build/libcloudflow-codec.a
+
+PACKET_DIR := $(ROOT)/libs/cloudflow-packet
+PACKET_LIB := $(PACKET_DIR)/build/libcloudflow-packet.a
 
 # The generated *_pb2.py files cross-import each other as
 # `from cloudflow.v1 import ..._pb2` (absolute, matching the protoc
@@ -59,18 +63,26 @@ QUEUE_TEST_LDLIBS   := -lcunit -pthread
 
 QUEUE_BIN := $(BUILD_DIR)/cf_queue_test
 
+# cf_decap_test.c only needs the packet library and CUnit -- it has no
+# dependency on cloudflow-core.
+DECAP_TEST_CPPFLAGS := -I$(PACKET_DIR)
+DECAP_TEST_LDLIBS   := -lcunit
+
+DECAP_BIN := $(BUILD_DIR)/cf_decap_test
+
 .PHONY: all test-unit test-tsan clean
 
-all: $(BIN) $(CODEC_BIN) $(QUEUE_BIN)
+all: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN)
 
 # Builds (if needed) and runs all unit test binaries plus the Python codec
 # round-trip script; fails the build if any of them fails (the C binaries
 # return non-zero on CUnit failure, and codec_roundtrip.py raises on
 # assertion failure).
-test-unit: $(BIN) $(CODEC_BIN) $(QUEUE_BIN)
+test-unit: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN)
 	./$(BIN)
 	./$(CODEC_BIN)
 	./$(QUEUE_BIN)
+	./$(DECAP_BIN)
 	PYTHONPATH=$(PY_CODEC_DIR) python3 $(ROOT)/tests/unit/codec_roundtrip.py
 
 $(CORE_LIB):
@@ -78,6 +90,9 @@ $(CORE_LIB):
 
 $(CODEC_LIB):
 	$(MAKE) -C $(CODEC_DIR) all
+
+$(PACKET_LIB):
+	$(MAKE) -C $(PACKET_DIR) all
 
 $(BIN): $(OBJECTS) $(CORE_LIB)
 	$(LINK.o) -o $@ $(OBJECTS) $(CORE_LIB) $(LDLIBS)
@@ -101,6 +116,14 @@ $(BUILD_DIR)/cf_queue_test.o: cf_queue_test.c | $(BUILD_DIR)
 
 $(QUEUE_BIN): $(BUILD_DIR)/cf_queue_test.o $(CORE_LIB)
 	$(LINK.o) -o $@ $(BUILD_DIR)/cf_queue_test.o $(CORE_LIB) $(QUEUE_TEST_LDLIBS)
+
+# Explicit rule for cf_decap_test.o so it gets -I$(PACKET_DIR) instead of
+# the generic rule's -I core.
+$(BUILD_DIR)/cf_decap_test.o: cf_decap_test.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(DECAP_TEST_CPPFLAGS) -c $< -o $@
+
+$(DECAP_BIN): $(BUILD_DIR)/cf_decap_test.o $(PACKET_LIB)
+	$(LINK.o) -o $@ $(BUILD_DIR)/cf_decap_test.o $(PACKET_LIB) $(DECAP_TEST_LDLIBS)
 
 # ---------------------------------------------------------------------------
 # test-tsan (WP-04)
