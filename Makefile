@@ -2,16 +2,19 @@
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
-SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet tests/unit
+SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis tests/unit
 
 proto:
 	./scripts/generate-protobuf.sh
 
 # test builds and runs all unit test binaries first, then delegates to
 # scripts/run-integration-tests.sh. Per-WP unit tests (tests/unit/) are
-# wired in here as they land -- WP-03 adds the first one.
+# wired in here as they land -- WP-03 adds the first one. cloudflow-redis
+# keeps its live-Redis test local to its own Makefile (WP-09); it spawns a
+# private redis-server and skips cleanly when the binary is absent.
 test:
 	$(MAKE) -C tests/unit test-unit
+	$(MAKE) -C libs/cloudflow-redis test
 	./scripts/run-integration-tests.sh
 
 # WP-04: rebuilds the cf_queue SPSC stress test with -fsanitize=thread
