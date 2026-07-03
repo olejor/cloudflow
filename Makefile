@@ -2,7 +2,7 @@
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
-SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis tests/unit
+SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis sources/cloudflow-source-dhcp tests/unit
 
 proto:
 	./scripts/generate-protobuf.sh
@@ -15,6 +15,7 @@ proto:
 test:
 	$(MAKE) -C tests/unit test-unit
 	$(MAKE) -C libs/cloudflow-redis test
+	$(MAKE) -C sources/cloudflow-source-dhcp test
 	./scripts/run-integration-tests.sh
 
 # WP-04: rebuilds the cf_queue SPSC stress test with -fsanitize=thread
