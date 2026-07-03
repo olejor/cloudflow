@@ -39,20 +39,39 @@ CODEC_DIR     := $(ROOT)/libs/cloudflow-codec
 CODEC_GEN_DIR := $(CODEC_DIR)/gen
 CODEC_LIB     := $(CODEC_DIR)/build/libcloudflow-codec.a
 
+REDIS_DIR := $(ROOT)/libs/cloudflow-redis
+REDIS_LIB := $(REDIS_DIR)/build/libcloudflow-redis.a
+
 FIXTURES_DIR := $(ROOT)/tests/fixtures/dhcp
 
-CPPFLAGS := -I. -Isrc -I$(CORE_DIR) -I$(PACKET_DIR) -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c)
+# WP-11's config.c (libyaml) and main.c (cf_redis_producer.h) grow the include
+# path with the redis library headers and yaml/hiredis pkg-config cflags on
+# top of WP-10's set.
+YAML_CFLAGS    := $(shell pkg-config --cflags yaml-0.1)
+YAML_LIBS      := $(shell pkg-config --libs yaml-0.1)
+HIREDIS_CFLAGS := $(shell pkg-config --cflags hiredis)
+HIREDIS_LIBS   := $(shell pkg-config --libs hiredis)
+PROTOBUF_LIBS  := $(shell pkg-config --libs libprotobuf-c)
+
+CPPFLAGS := -I. -Isrc -I$(CORE_DIR) -I$(PACKET_DIR) -I$(CODEC_GEN_DIR) -I$(REDIS_DIR) \
+            $(shell pkg-config --cflags libprotobuf-c) $(YAML_CFLAGS) $(HIREDIS_CFLAGS)
 
 BUILD_DIR := build
 
-SOURCES := src/rx_reader.c src/pcap_replay.c src/queue_policy.c src/formatter.c
+# Library sources (WP-08/10 pipeline modules + WP-11 config/stats). main.c is
+# NOT archived here -- it defines main() and links straight into $(BIN).
+SOURCES := src/rx_reader.c src/pcap_replay.c src/queue_policy.c src/formatter.c \
+           src/config.c src/stats.c
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(SOURCES:.c=.o))
 
 LIB := $(BUILD_DIR)/libcloudflow-source-dhcp.a
 
+# The WP-11 application binary.
+BIN := $(BUILD_DIR)/cloudflow-source-dhcp
+
 .PHONY: all test test-asan clean rx-smoke
 
-all: $(LIB)
+all: $(LIB) $(BIN)
 
 $(LIB): $(OBJECTS)
 	$(ARCHIVE.a) $@ $^
@@ -70,8 +89,21 @@ $(PACKET_LIB):
 $(CODEC_LIB):
 	$(MAKE) -C $(CODEC_DIR) all
 
+$(REDIS_LIB):
+	$(MAKE) -C $(REDIS_DIR) all
+
 $(BUILD_DIR):
 	mkdir -p $@
+
+# ---------------------------------------------------------------------------
+# cloudflow-source-dhcp binary (WP-11): links the source library archive plus
+# the redis, packet, codec, and core libraries and their external deps
+# (hiredis, protobuf-c, yaml), with -pthread for the three pipeline threads.
+BIN_LDLIBS := $(HIREDIS_LIBS) $(PROTOBUF_LIBS) $(YAML_LIBS) -pthread
+
+$(BIN): $(BUILD_DIR)/src/main.o $(LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB)
+	$(LINK.o) -o $@ $(BUILD_DIR)/src/main.o $(LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) \
+	    $(CORE_LIB) $(BIN_LDLIBS)
 
 # ---------------------------------------------------------------------------
 # test: CUnit acceptance suites -- tests/rx_reader_test.c (WP-08) and
