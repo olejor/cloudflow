@@ -5,9 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Must define SPLUNK_HEC_TOKEN (or whatever env var splunk.hec_token_env in
+# the YAML config names) -- decision D6: the HEC token is env-only, never in
+# YAML. File is not committed; deploy it out of band, e.g.:
+#   SPLUNK_HEC_TOKEN=...
 EnvironmentFile=-/etc/cloudflow/splunk-sink.env
 ExecStart=/usr/local/bin/cloudflow-sink-splunk --config /etc/cloudflow/splunk-sink.yaml
-Restart=always
+Restart=on-failure
 RestartSec=5
 User=cloudflow
 Group=cloudflow

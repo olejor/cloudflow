@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloudflow-decode-event"
+version = "0.1.0"
+description = "Decode a packed CloudFlowEvent (Redis stream entry, file, or stdin) to JSON or the WP-12 HEC mapping (WP-13)."
+requires-python = ">=3.9"
+dependencies = [
+    "protobuf",
+    "redis",
+    "PyYAML",
+]
+
+[project.scripts]
+cloudflow-decode-event = "cloudflow_decode_event.cli:main"
+
+[tool.setuptools]
+# This tool has one *mandatory* external dependency and one *optional* one,
+# both living outside this directory in sinks/cloudflow-sink-splunk/ (WP-13
+# depends on WP-02; the --hec flag additionally reuses WP-12's mapping code
+# per docs/design/05-tools-tests-ci.md):
+#
+#   - cloudflow / cloudflow.v1  (WP-02 generated protobuf bindings, mandatory
+#     for every invocation -- there is no decoding without them). Declared
+#     here via package-dir, the same stitching trick
+#     sinks/cloudflow-sink-splunk/pyproject.toml uses, so `pip install -e .`
+#     makes `from cloudflow.v1 import envelope_pb2` resolve normally.
+#
+#   - cloudflow_sink_splunk (WP-12), needed only for --hec. NOT declared as a
+#     packaged dependency here (it pulls in `requests`, which this tool does
+#     not otherwise need, and WP-13's dependency graph only names WP-02).
+#     src/cloudflow_decode_event/_bootstrap.py imports it directly if it is
+#     already importable (e.g. `pip install -e sinks/cloudflow-sink-splunk`
+#     into the same environment) and otherwise falls back to inserting
+#     sinks/cloudflow-sink-splunk/src onto sys.path, computed relative to
+#     this repo's fixed layout -- the same no-install dev flow documented in
+#     sinks/cloudflow-sink-splunk/README.md ("Without installing, the
+#     package also runs straight out of the checkout").
+packages = [
+    "cloudflow_decode_event",
+    "cloudflow",
+    "cloudflow.v1",
+]
+
+[tool.setuptools.package-dir]
+cloudflow_decode_event = "src/cloudflow_decode_event"
+cloudflow = "../../sinks/cloudflow-sink-splunk/src/cloudflow_pb/cloudflow"
+"cloudflow.v1" = "../../sinks/cloudflow-sink-splunk/src/cloudflow_pb/cloudflow/v1"

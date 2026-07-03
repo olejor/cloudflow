@@ -1,0 +1,180 @@
+name: ci
+
+# WP-16: real CI. Jobs mirror docs/design/05-tools-tests-ci.md 1:1 --
+# build-test, proto-drift, sanitizers, python-tests, integration. Kept
+# minimal/readable (Convention 3 in docs/design/00-overview.md): no caching
+# sophistication, actions pinned to major versions only.
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+env:
+  # README.md "Build dependencies" -- the single documented apt install line
+  # for the C toolchain.
+  APT_PACKAGES: >-
+    gcc make pkg-config protobuf-compiler protobuf-c-compiler
+    libprotobuf-c-dev libhiredis-dev libyaml-dev libcunit1-dev
+    python3 python3-pip
+
+jobs:
+  # `make build` + `make test` (unit tests; scripts/run-integration-tests.sh
+  # is still a TODO stub at this point in the WP sequence, so `make test`
+  # exits clean through it). Logs are captured to a file so they can be
+  # uploaded as an artifact on failure.
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ env.APT_PACKAGES }}
+
+      - name: Install Python dependencies
+        run: python3 -m pip install --user protobuf redis requests PyYAML
+
+      - name: make build
+        run: make build 2>&1 | tee build.log
+
+      - name: make test
+        run: make test 2>&1 | tee test.log
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-test-logs
+          path: |
+            build.log
+            test.log
+
+  # Protects committed generated code (D2, WP-02 acceptance criterion):
+  # re-running scripts/generate-protobuf.sh must produce no diff.
+  proto-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc + protobuf-c plugin
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler protobuf-c-compiler
+
+      - name: Regenerate protobuf bindings
+        run: ./scripts/generate-protobuf.sh
+
+      - name: Fail on drift
+        run: |
+          git diff
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::generated protobuf output is stale -- run scripts/generate-protobuf.sh and commit the diff"
+            git status --porcelain
+            exit 1
+          fi
+
+  # make test-tsan (WP-04) plus make test-asan (WP-16, tests/unit/Makefile):
+  # ASan/UBSan and TSan builds of the C unit test binaries, compiling the
+  # library sources straight into each sanitizer binary. Neither target
+  # depends on `make build` having run first (both compile library sources
+  # directly rather than linking the plain .a).
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ env.APT_PACKAGES }}
+
+      - name: make test-tsan
+        run: make test-tsan
+
+      - name: make test-asan
+        run: make test-asan
+
+  # pytest for the Python sink (WP-12) and, once landed, each tools/*
+  # debug tool (WP-13) -- discovered dynamically so this job works
+  # regardless of which of WP-12/WP-13 lands first or last. redis-server is
+  # installed on the runner so the redis_server pytest fixture pattern
+  # (start a private instance per session, skip cleanly if unavailable) has
+  # something to find; tests that don't need it are unaffected either way.
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip redis-server
+
+      - name: Install Python dependencies
+        run: python3 -m pip install --user protobuf redis requests PyYAML pytest
+
+      - name: Syntax gate (compileall)
+        run: |
+          python3 -m compileall -q sinks/cloudflow-sink-splunk
+          if [ -d tools ]; then python3 -m compileall -q tools; fi
+
+      - name: pytest (sink + tools)
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          ROOT="$(pwd)"
+          SINK_DIR="$ROOT/sinks/cloudflow-sink-splunk"
+          STATUS=0
+
+          if [ -d "$SINK_DIR/tests" ]; then
+            echo "=== pytest: sinks/cloudflow-sink-splunk ==="
+            (cd "$SINK_DIR" && PYTHONPATH="src:src/cloudflow_pb" python3 -m pytest tests -v)
+            STATUS=$((STATUS || $?))
+          fi
+
+          for tool_dir in "$ROOT"/tools/*/; do
+            tool_dir="${tool_dir%/}"
+            [ -d "$tool_dir/tests" ] || continue
+            name="$(basename "$tool_dir")"
+            echo "=== pytest: tools/$name ==="
+            # Generic PYTHONPATH covering both a src/ layout (mirroring the
+            # sink) and a flat layout, plus the sink's package + generated
+            # protobuf bindings that WP-13 shares (docs/design/05-tools-tests-ci.md).
+            TOOL_PYTHONPATH="$tool_dir/src:$tool_dir:$SINK_DIR/src:$SINK_DIR/src/cloudflow_pb"
+            (cd "$tool_dir" && PYTHONPATH="$TOOL_PYTHONPATH" python3 -m pytest tests -v)
+            STATUS=$((STATUS || $?))
+          done
+
+          exit $STATUS
+
+  # scripts/run-integration-tests.sh (WP-14). Still a TODO stub that exits 0
+  # at this point in the WP sequence -- the gate here is that the script
+  # exists and its exit code is honored, not that it does anything yet.
+  # Redis is provided as a service container so the script (once WP-14
+  # lands) can point CF_TEST_REDIS at it without managing its own container.
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ env.APT_PACKAGES }}
+
+      - name: run-integration-tests.sh
+        env:
+          CF_TEST_REDIS: 127.0.0.1:6379
+        run: ./scripts/run-integration-tests.sh
