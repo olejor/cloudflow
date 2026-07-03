@@ -6,11 +6,12 @@
 # mk/toolchain.mk, extend CPPFLAGS/LDLIBS rather than overriding
 # CFLAGS/LDFLAGS.
 #
-# Five independent CUnit binaries are built so this file's core-test
+# Six independent CUnit binaries are built so this file's core-test
 # SOURCES list doesn't need to change as later WPs land: build/cf_core_test
 # (WP-03), build/cf_codec_test (WP-02), build/cf_queue_test (WP-04),
-# build/cf_decap_test (WP-05), and build/cf_dhcpv4_test (WP-06). test-unit
-# runs all five, plus the Python codec round-trip check.
+# build/cf_decap_test (WP-05), build/cf_dhcpv4_test (WP-06), and
+# build/cf_dhcpv6_test (WP-07). test-unit runs all six, plus the Python
+# codec round-trip check.
 #
 # test-tsan (WP-04) is a separate target/binary: it recompiles cf_queue.c
 # and cf_queue_test.c with -fsanitize=thread instead of linking
@@ -21,10 +22,10 @@
 #
 # test-asan (WP-16) follows the same "compile the library sources straight
 # into the test binary" approach, but -- unlike test-tsan, which only
-# rebuilds the queue stress test -- it rebuilds and runs all five suites
-# (core, codec, queue, decap, dhcpv4), since ASan/UBSan misuse (buffer
-# overflows, UB, leaks) can hide in any of them, not just the queue. It is
-# its own target, invoked by the top-level Makefile's test-asan target.
+# rebuilds the queue stress test -- it rebuilds and runs all six suites
+# (core, codec, queue, decap, dhcpv4, dhcpv6), since ASan/UBSan misuse
+# (buffer overflows, UB, leaks) can hide in any of them, not just the queue.
+# It is its own target, invoked by the top-level Makefile's test-asan target.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 include $(ROOT)/mk/toolchain.mk
@@ -90,20 +91,30 @@ DHCPV4_TEST_LDLIBS   := -lcunit $(shell pkg-config --libs libprotobuf-c)
 
 DHCPV4_BIN := $(BUILD_DIR)/cf_dhcpv4_test
 
+# cf_dhcpv6_test.c needs exactly what cf_dhcpv4_test.c needs (the packet
+# library, the generated protobuf-c headers/lib, CUnit, and FIXTURES_DIR) --
+# see cf_dhcpv4_test.c's Makefile comment above.
+DHCPV6_TEST_CPPFLAGS := -I$(PACKET_DIR) -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c) \
+                         -DFIXTURES_DIR=\"$(FIXTURES_DIR)\"
+DHCPV6_TEST_LDLIBS   := -lcunit $(shell pkg-config --libs libprotobuf-c)
+
+DHCPV6_BIN := $(BUILD_DIR)/cf_dhcpv6_test
+
 .PHONY: all test-unit test-tsan test-asan clean
 
-all: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN) $(DHCPV4_BIN)
+all: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN) $(DHCPV4_BIN) $(DHCPV6_BIN)
 
 # Builds (if needed) and runs all unit test binaries plus the Python codec
 # round-trip script; fails the build if any of them fails (the C binaries
 # return non-zero on CUnit failure, and codec_roundtrip.py raises on
 # assertion failure).
-test-unit: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN) $(DHCPV4_BIN)
+test-unit: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN) $(DHCPV4_BIN) $(DHCPV6_BIN)
 	./$(BIN)
 	./$(CODEC_BIN)
 	./$(QUEUE_BIN)
 	./$(DECAP_BIN)
 	./$(DHCPV4_BIN)
+	./$(DHCPV6_BIN)
 	PYTHONPATH=$(PY_CODEC_DIR) python3 $(ROOT)/tests/unit/codec_roundtrip.py
 
 $(CORE_LIB):
@@ -154,6 +165,14 @@ $(BUILD_DIR)/cf_dhcpv4_test.o: cf_dhcpv4_test.c | $(BUILD_DIR)
 
 $(DHCPV4_BIN): $(BUILD_DIR)/cf_dhcpv4_test.o $(PACKET_LIB) $(CODEC_LIB)
 	$(LINK.o) -o $@ $(BUILD_DIR)/cf_dhcpv4_test.o $(PACKET_LIB) $(CODEC_LIB) $(DHCPV4_TEST_LDLIBS)
+
+# Explicit rule for cf_dhcpv6_test.o, same reasoning as cf_dhcpv4_test.o
+# above.
+$(BUILD_DIR)/cf_dhcpv6_test.o: cf_dhcpv6_test.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(DHCPV6_TEST_CPPFLAGS) -c $< -o $@
+
+$(DHCPV6_BIN): $(BUILD_DIR)/cf_dhcpv6_test.o $(PACKET_LIB) $(CODEC_LIB)
+	$(LINK.o) -o $@ $(BUILD_DIR)/cf_dhcpv6_test.o $(PACKET_LIB) $(CODEC_LIB) $(DHCPV6_TEST_LDLIBS)
 
 # ---------------------------------------------------------------------------
 # test-tsan (WP-04)
@@ -316,12 +335,43 @@ $(BUILD_DIR)/asan_dhcpv4_%.o: $(CODEC_GEN_DIR)/cloudflow/v1/%.c | $(BUILD_DIR)
 $(DHCPV4_ASAN_BIN): $(DHCPV4_ASAN_OBJECTS)
 	$(CC) $(ASAN_LDFLAGS) -o $@ $(DHCPV4_ASAN_OBJECTS) $(DHCPV4_ASAN_LDLIBS)
 
-test-asan: $(CORE_ASAN_BIN) $(CODEC_ASAN_BIN) $(QUEUE_ASAN_BIN) $(DECAP_ASAN_BIN) $(DHCPV4_ASAN_BIN)
+# -- dhcpv6 (cf_dhcpv6_test + cf_decap.c/cf_ipfmt.c + the WP-07 cf_dhcpv6*.c
+# sources, instrumented, plus the generated common.pb-c.c/dhcp.pb-c.c
+# sources DhcpV6PacketEvent needs -- same reasoning as the dhcpv4 block
+# above) --
+DHCPV6_ASAN_CFLAGS := $(ASAN_CFLAGS) -I$(PACKET_DIR) -I$(CODEC_GEN_DIR) \
+                       $(shell pkg-config --cflags libprotobuf-c) -DFIXTURES_DIR=\"$(FIXTURES_DIR)\"
+DHCPV6_ASAN_LDLIBS := -lcunit $(shell pkg-config --libs libprotobuf-c)
+
+DHCPV6_ASAN_PACKET_SOURCES := cf_decap.c cf_ipfmt.c cf_dhcpv6.c cf_dhcpv6_decode.c \
+                               cf_dhcpv6_util.c cf_dhcpv6_optnames.c
+DHCPV6_ASAN_GEN_SOURCES    := common.pb-c.c dhcp.pb-c.c
+
+DHCPV6_ASAN_OBJECTS := $(BUILD_DIR)/asan_dhcpv6_cf_dhcpv6_test.o \
+                        $(addprefix $(BUILD_DIR)/asan_dhcpv6_,$(DHCPV6_ASAN_PACKET_SOURCES:.c=.o)) \
+                        $(addprefix $(BUILD_DIR)/asan_dhcpv6_,$(DHCPV6_ASAN_GEN_SOURCES:.c=.o))
+
+DHCPV6_ASAN_BIN := $(BUILD_DIR)/cf_dhcpv6_test_asan
+
+$(BUILD_DIR)/asan_dhcpv6_cf_dhcpv6_test.o: cf_dhcpv6_test.c | $(BUILD_DIR)
+	$(CC) $(DHCPV6_ASAN_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/asan_dhcpv6_%.o: $(PACKET_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(DHCPV6_ASAN_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/asan_dhcpv6_%.o: $(CODEC_GEN_DIR)/cloudflow/v1/%.c | $(BUILD_DIR)
+	$(CC) $(DHCPV6_ASAN_CFLAGS) -c $< -o $@
+
+$(DHCPV6_ASAN_BIN): $(DHCPV6_ASAN_OBJECTS)
+	$(CC) $(ASAN_LDFLAGS) -o $@ $(DHCPV6_ASAN_OBJECTS) $(DHCPV6_ASAN_LDLIBS)
+
+test-asan: $(CORE_ASAN_BIN) $(CODEC_ASAN_BIN) $(QUEUE_ASAN_BIN) $(DECAP_ASAN_BIN) $(DHCPV4_ASAN_BIN) $(DHCPV6_ASAN_BIN)
 	./$(CORE_ASAN_BIN)
 	./$(CODEC_ASAN_BIN)
 	./$(QUEUE_ASAN_BIN)
 	./$(DECAP_ASAN_BIN)
 	./$(DHCPV4_ASAN_BIN)
+	./$(DHCPV6_ASAN_BIN)
 
 $(BUILD_DIR):
 	mkdir -p $@

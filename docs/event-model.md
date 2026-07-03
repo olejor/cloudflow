@@ -37,4 +37,6 @@ dhcpv6.rebind.observed
 dhcpv6.reply.observed
 dhcpv6.release.observed
 dhcpv6.decline.observed
+dhcpv6.relay-forw.observed
+dhcpv6.relay-repl.observed
 ```

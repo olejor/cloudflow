@@ -20,18 +20,22 @@ CODEC_LIB := $(CODEC_DIR)/build/libcloudflow-codec.a
 CC ?= gcc
 CFLAGS ?= -std=gnu11 -O1 -g -Wall -Wextra -I$(PACKET_DIR)
 
-# dhcpv4_fuzz.c additionally needs the generated protobuf-c headers/lib
-# (cf_dhcpv4.h pulls in cloudflow/v1/dhcp.pb-c.h) on top of decap_fuzz's
-# plain -I$(PACKET_DIR).
+# dhcpv4_fuzz.c/dhcpv6_fuzz.c additionally need the generated protobuf-c
+# headers/lib (cf_dhcpv4.h/cf_dhcpv6.h pull in cloudflow/v1/dhcp.pb-c.h) on
+# top of decap_fuzz's plain -I$(PACKET_DIR).
 DHCPV4_CFLAGS := $(CFLAGS) -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c)
 DHCPV4_LDLIBS := $(shell pkg-config --libs libprotobuf-c)
 
+DHCPV6_CFLAGS := $(CFLAGS) -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c)
+DHCPV6_LDLIBS := $(shell pkg-config --libs libprotobuf-c)
+
 BIN := decap_fuzz
 DHCPV4_BIN := dhcpv4_fuzz
+DHCPV6_BIN := dhcpv6_fuzz
 
 .PHONY: all clean
 
-all: $(BIN) $(DHCPV4_BIN)
+all: $(BIN) $(DHCPV4_BIN) $(DHCPV6_BIN)
 
 $(PACKET_LIB):
 	$(MAKE) -C $(PACKET_DIR) all
@@ -45,5 +49,8 @@ $(BIN): decap_fuzz.c $(PACKET_LIB)
 $(DHCPV4_BIN): dhcpv4_fuzz.c $(PACKET_LIB) $(CODEC_LIB)
 	$(CC) $(DHCPV4_CFLAGS) -o $@ dhcpv4_fuzz.c $(PACKET_LIB) $(CODEC_LIB) $(DHCPV4_LDLIBS)
 
+$(DHCPV6_BIN): dhcpv6_fuzz.c $(PACKET_LIB) $(CODEC_LIB)
+	$(CC) $(DHCPV6_CFLAGS) -o $@ dhcpv6_fuzz.c $(PACKET_LIB) $(CODEC_LIB) $(DHCPV6_LDLIBS)
+
 clean:
-	rm -f $(BIN) $(DHCPV4_BIN)
+	rm -f $(BIN) $(DHCPV4_BIN) $(DHCPV6_BIN)

@@ -66,3 +66,29 @@ the harness over all of them, failing if anything crashes or leaks.
 ```sh
 ./tests/fuzz/dhcpv4_fuzz_quick_check.sh
 ```
+
+## Fuzzing cf_dhcpv6_parse() (WP-07)
+
+`dhcpv6_fuzz.c` is the same style of harness for the DHCPv6 parser
+(`libs/cloudflow-packet/cf_dhcpv6.c`): it reads one DHCPv6 payload (the
+bytes that would follow the UDP header) from `argv[1]`/stdin, calls
+`cf_dhcpv6_parse()`, and if that succeeds also packs and frees the
+resulting event. Build it the same way:
+
+```sh
+make -C libs/cloudflow-packet all   # build/libcloudflow-packet.a
+make -C libs/cloudflow-codec all    # build/libcloudflow-codec.a
+make -C tests/fuzz all              # tests/fuzz/dhcpv6_fuzz
+```
+
+To fuzz with AFL, seed with the DHCPv6 payloads extracted from
+`tests/fixtures/dhcp/v6_*.pcap` (strip Ethernet/IPv6/UDP -- e.g. via
+scapy's `bytes(pkt[UDP].payload)`) and run the same way as `decap_fuzz`
+above, substituting `./tests/fuzz/dhcpv6_fuzz`.
+
+If AFL isn't available, `dhcpv6_fuzz_quick_check.sh` is the same one-shot
+fallback as `dhcpv4_fuzz_quick_check.sh`, over the `v6_*.pcap` fixtures:
+
+```sh
+./tests/fuzz/dhcpv6_fuzz_quick_check.sh
+```

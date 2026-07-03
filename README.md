@@ -178,6 +178,8 @@ dhcpv6.solicit.observed
 dhcpv6.advertise.observed
 dhcpv6.request.observed
 dhcpv6.reply.observed
+dhcpv6.relay-forw.observed
+dhcpv6.relay-repl.observed
 ```
 
 ## Redis Streams
