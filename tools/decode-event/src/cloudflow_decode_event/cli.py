@@ -135,21 +135,15 @@ def _read_input_bytes(args: argparse.Namespace) -> List[Tuple[str, bytes]]:
     return [("<stdin>", data)]
 
 
-def _default_splunk_config(sink_config_module):
+def _default_splunk_config():
     """The SplunkConfig used for --hec: no operator config file exists for
-    this debug tool, so this mirrors the sink's own *defaults* exactly
+    this debug tool, so this uses the mapping's defaults exactly
     (docs/design/04-sink-splunk.md): no index, no sourcetype overrides
     (falls back to ``cloudflow:<source_type>``), raw DHCP payload stripped.
-    ``hec_url``/``hec_token_env`` are required fields on the dataclass but
-    unused by ``transform`` -- placeholders are fine.
     """
-    return sink_config_module.SplunkConfig(
-        hec_url="unused",
-        hec_token_env="CF_DECODE_EVENT_UNUSED_TOKEN_ENV",
-        index="",
-        sourcetypes={},
-        include_raw_payload=False,
-    )
+    from . import hec_mapping
+
+    return hec_mapping.SplunkConfig()
 
 
 def _decode_one(label: str, data: bytes, *, hec: bool, stream_name: Optional[str]) -> bool:
@@ -168,10 +162,11 @@ def _decode_one(label: str, data: bytes, *, hec: bool, stream_name: Optional[str
         return False
 
     if hec:
-        transform, sink_config_module = _bootstrap.import_sink_transform()
-        splunk_cfg = _default_splunk_config(sink_config_module)
+        from . import hec_mapping
+
+        splunk_cfg = _default_splunk_config()
         effective_stream = stream_name or event.envelope.stream_name or ""
-        print(transform.render_hec_line(event, effective_stream, splunk_cfg))
+        print(hec_mapping.render_hec_line(event, effective_stream, splunk_cfg))
     else:
         from google.protobuf import json_format
 

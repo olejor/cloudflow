@@ -2,7 +2,7 @@
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
-SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis sources/cloudflow-source-dhcp tests/unit
+SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis sources/cloudflow-source-dhcp sinks/cloudflow-sink-splunk tests/unit
 
 proto:
 	./scripts/generate-protobuf.sh
@@ -16,6 +16,7 @@ test:
 	$(MAKE) -C tests/unit test-unit
 	$(MAKE) -C libs/cloudflow-redis test
 	$(MAKE) -C sources/cloudflow-source-dhcp test
+	$(MAKE) -C sinks/cloudflow-sink-splunk test
 	./scripts/run-integration-tests.sh
 
 # WP-04: rebuilds the cf_queue SPSC stress test with -fsanitize=thread
@@ -25,13 +26,15 @@ test:
 test-tsan:
 	$(MAKE) -C tests/unit test-tsan
 
-# WP-16: ASan+UBSan build of all four unit test binaries (core, codec,
-# queue, decap -- see tests/unit/Makefile's test-asan target for why this
-# one runs all suites, unlike test-tsan which only runs the queue stress
-# test). Kept separate from `test` for the same reason test-tsan is: slow,
+# WP-16: ASan+UBSan build of the C unit test binaries, plus the source
+# formatter suite (WP-10) and the C Splunk sink suites (WP-17), each of
+# which compiles its library sources straight into the instrumented binary.
+# Kept separate from `test` for the same reason test-tsan is: slow,
 # instrumented, not part of the default CI-clean-build loop.
 test-asan:
 	$(MAKE) -C tests/unit test-asan
+	$(MAKE) -C sources/cloudflow-source-dhcp test-asan
+	$(MAKE) -C sinks/cloudflow-sink-splunk test-asan
 
 bench:
 	./scripts/benchmark-xadd.sh

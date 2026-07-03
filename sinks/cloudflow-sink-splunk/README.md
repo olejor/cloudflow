@@ -1,90 +1,97 @@
 # cloudflow-sink-splunk
 
-Redis Streams to Splunk HEC sink for CloudFlow events (WP-12, Python 3.9+,
-decision D1). This document also implements the **canonical CloudFlowEvent →
-Splunk JSON mapping** described in `docs/design/04-sink-splunk.md`, which is
-a contract: `tools/decode-event` (WP-13) reuses it, and changing it later is
-a schema change that needs a docs update.
+Redis Streams to Splunk HEC sink for CloudFlow events. **C rewrite (WP-17,
+`docs/design/06-sink-splunk-c.md`)** of the original Python sink (WP-12), per
+the revised decision D1. The **canonical CloudFlowEvent → Splunk HEC JSON
+mapping** and the consumer/retry/dead-letter behavior are unchanged
+contracts (`docs/design/04-sink-splunk.md`); the Python-era golden files in
+`tests/golden/` are the cross-language compatibility tests the C transform is
+proven against.
 
 Pipeline:
 
 ```text
-XREADGROUP (group sink-splunk) -> protobuf decode -> Splunk HEC JSON
-    -> HEC POST (batched) -> XACK on 2xx only
-                     \-> dead-letter stream on poison events
+XAUTOCLAIM (min-idle 60s) -> XREADGROUP (group sink-splunk)
+    -> protobuf-c decode -> HEC JSON (yyjson) -> HEC POST (libcurl, batched)
+        -> XACK on 2xx only
+         \-> dead-letter stream on poison events (decode / HTTP 4xx)
 ```
 
 Responsibilities:
 
-- consume DHCPv4/DHCPv6 streams using the `sink-splunk` consumer group,
-- decode `cloudflow.v1.CloudFlowEvent` protobuf payloads,
-- convert events to Splunk-friendly JSON (see "Canonical HEC mapping" below),
-- send batches to Splunk HEC with retry/backoff,
-- acknowledge Redis messages only after confirmed delivery (or confirmed
+- consume DHCPv4/DHCPv6 streams using the `sink-splunk` consumer group;
+- decode `cloudflow.v1.CloudFlowEvent` protobuf payloads;
+- convert events to Splunk HEC JSON (see "Canonical HEC mapping");
+- POST batches to Splunk HEC with retry/backoff and poison bisection;
+- acknowledge Redis entries only after confirmed delivery (or confirmed
   dead-lettering).
 
-## Package layout
+## Layout
 
 ```text
-src/cloudflow_sink_splunk/   this package
-  __main__.py                 CLI: -c <config>, --stdout, --once
-  config.py                   YAML config loading (schema below)
-  consumer.py                 Redis consumer-group logic (XGROUP/XAUTOCLAIM/XREADGROUP/XACK)
-  transform.py                canonical protobuf -> HEC JSON mapping
-  hec.py                      batched Splunk HEC client (requests.Session) + retry/bisect
-  deadletter.py               dead-letter stream writer
-  metrics.py                  structured JSON logging + counters/stats line
-src/cloudflow_pb/             generated protobuf bindings (WP-02, do not edit -- see its README)
-tests/                        pytest: golden transform tests, Redis consumer
-                               tests (skip cleanly without a working
-                               redis-server), stub-HEC retry tests
+src/
+  main.c          CLI: -c <config>, --stdout, --once, --version; SIGTERM flush-once
+  config.{c,h}    YAML config loading (libyaml); env-only HEC token (D6)
+  consumer.{c,h}  Redis consumer group (hiredis): XGROUP/XAUTOCLAIM/XREADGROUP/XACK
+  transform.{c,h} protobuf-c CloudFlowEvent -> yyjson HEC JSON (the mapping)
+  hec.{c,h}       batched Splunk HEC client (libcurl) + retry/backoff/bisect
+  deadletter.{c,h}dead-letter stream writer
+  stats.{c,h}     counters + periodic structured stats line
+src/cloudflow_pb/ generated Python bindings (WP-02) -- kept for tools + the
+                  golden generator; not used by the C binary
+tests/            CUnit suites + golden files + the Python golden generator
+config/           example config
+systemd/          unit file
+Makefile          build/cloudflow-sink-splunk; `all test test-asan clean`
+```
+
+## Building
+
+Depends on: `libcloudflow-core.a`, `libcloudflow-codec.a`, the vendored
+`third_party/yyjson`, and the system libraries hiredis, libcurl, libyaml,
+libprotobuf-c (all via `pkg-config`).
+
+```sh
+make -C sinks/cloudflow-sink-splunk all       # -> build/cloudflow-sink-splunk
+make -C sinks/cloudflow-sink-splunk test       # CUnit suites (see below)
+make -C sinks/cloudflow-sink-splunk test-asan  # same suites under ASan/UBSan
+make -C sinks/cloudflow-sink-splunk clean
 ```
 
 ## Running
 
 ```sh
-# Editable install (also works via plain PYTHONPATH, see below):
-pip install -e .
+# Replay / milestone check: print HEC-shaped JSON to stdout instead of POSTing.
+build/cloudflow-sink-splunk -c config/splunk-sink.example.yaml --stdout --once
 
-# Replay mode / milestone M1 check: print HEC-shaped JSON to stdout instead
-# of POSTing to Splunk.
-cloudflow-sink-splunk -c config/splunk-sink.example.yaml --stdout
-
-# Process what's currently pending, then exit (used by tests and smoke checks).
-cloudflow-sink-splunk -c config/splunk-sink.example.yaml --stdout --once
-```
-
-Without installing, the package also runs straight out of the checkout:
-
-```sh
-PYTHONPATH=src:src/cloudflow_pb python3 -m cloudflow_sink_splunk -c config/splunk-sink.example.yaml --stdout
-```
-
-The HEC token is **never** read from YAML. Set the environment variable
-named by `splunk.hec_token_env` (default in the example config:
-`SPLUNK_HEC_TOKEN`) before starting the process for real (non-`--stdout`)
-delivery:
-
-```sh
+# Real delivery to Splunk HEC (token from the environment, see below):
 export SPLUNK_HEC_TOKEN=...
-cloudflow-sink-splunk -c /etc/cloudflow/splunk-sink.yaml
+build/cloudflow-sink-splunk -c /etc/cloudflow/splunk-sink.yaml
 ```
+
+Flags: `-c/--config PATH` (required), `--stdout` (print HEC JSON lines instead
+of POSTing), `--once` (drain what is pending, then exit), `--version`.
+`SIGTERM`/`SIGINT` flush the in-flight batch once, ack what succeeded, then
+exit (at-least-once; unacked entries stay pending).
+
+The HEC token is **never** read from YAML. Set the environment variable named
+by `splunk.hec_token_env` (default `SPLUNK_HEC_TOKEN`). A token-looking string
+where an env-var *name* is expected, or a literal `splunk.hec_token` key in
+YAML, is a fatal startup error (decision D6). The token is never logged.
 
 ## Configuration
 
-Schema (see `config/splunk-sink.example.yaml`, which matches
-`configs/examples/splunk-sink.yaml` in the repo root):
+Schema (see `config/splunk-sink.example.yaml`, identical to
+`configs/examples/splunk-sink.yaml`):
 
 ```yaml
 service:
   name: cloudflow-sink-splunk       # required
-  consumer_name: splunk-01          # required; the Redis consumer-group member name
+  consumer_name: splunk-01          # required; the consumer-group member name
 
 redis:
   endpoints:                        # required, non-empty; D3: first reachable wins
     - redis01:6379
-    - redis02:6379
-    - redis03:6379
   streams:                          # required, non-empty
     - cloudflow:v1:wire:dhcpv4
     - cloudflow:v1:wire:dhcpv6
@@ -106,16 +113,10 @@ splunk:
   include_raw_payload: false        # default: false; strips raw_dhcp_payload from HEC events
 ```
 
-A token-looking string where `splunk.hec_token_env` (an environment
-variable *name*) is expected -- or a literal `splunk.hec_token` key in
-YAML -- is a startup error (decision D6: secrets are env-only, never in
-YAML).
-
 ## Canonical HEC mapping
 
-One HEC event per `CloudFlowEvent`, POSTed to
-`/services/collector/event` as newline-concatenated JSON objects
-(`transform.render_hec_line`):
+One HEC event per `CloudFlowEvent`, POSTed to `/services/collector/event` as
+newline-concatenated JSON objects:
 
 ```json
 {
@@ -124,83 +125,66 @@ One HEC event per `CloudFlowEvent`, POSTed to
   "source": "<envelope.stream_name, or the Redis stream the entry came from>",
   "sourcetype": "cloudflow:dhcpv4",
   "index": "<config splunk.index, omitted entirely if empty>",
-  "event": "google.protobuf.json_format.MessageToDict(cloudflow_event, preserving_proto_field_name=True)"
+  "event": { "...MessageToDict(preserving_proto_field_name=True)..." }
 }
 ```
 
-Rules:
+Rules (reproducing protobuf JSON / `MessageToDict` semantics exactly):
 
-- `time` = `observed_time_unix_nano / 1e9`, always rendered with exactly 9
-  decimal places (observed wire time is the Splunk event time).
-- `sourcetype` comes from `splunk.sourcetypes` keyed by
-  `envelope.source_type`; unknown source types fall back to
-  `cloudflow:<source_type>`.
-- `event` is `MessageToDict(cloudflow_event, preserving_proto_field_name=True)`
-  verbatim -- bytes render as base64, enums as names, unset proto3 fields
-  are omitted, and the oneof payload appears under its own field name
-  (`dhcpv4_packet`, `dhcpv6_packet`), keeping Splunk search paths stable,
-  e.g. `sourcetype=cloudflow:dhcpv4 event.dhcpv4_packet.decoded.message_type_name=ACK`.
-- `raw_dhcp_payload` is stripped from the decoded event unless
-  `splunk.include_raw_payload: true` -- it is large and base64-opaque in
-  Splunk; the wire truth stays replayable from Redis.
-- `--stdout` mode and golden tests use `sort_keys=True` for a stable,
-  byte-for-byte comparable key order.
+- `time` = `observed_time_unix_nano / 1e9`, rendered with exactly 9 decimals;
+- proto field names verbatim (snake_case); proto3 defaults omitted; the set
+  oneof payload appears under its field name (`dhcpv4_packet`/`dhcpv6_packet`);
+- enums as their `.proto` names; `bytes` as base64; 64-bit integers as JSON
+  strings; 32-bit integers/bools/floats as JSON numbers/bools;
+- `sourcetype` from `splunk.sourcetypes` keyed by `envelope.source_type`,
+  falling back to `cloudflow:<source_type>`;
+- `raw_dhcp_payload` is stripped unless `splunk.include_raw_payload: true`;
+- object keys are emitted in sorted order for stable diffs (the golden test
+  compares structurally regardless of key order).
 
-## Consumer behavior
+## Consumer, retry, dead-letter
 
-- On startup: `XGROUP CREATE <stream> sink-splunk 0 MKSTREAM` for each
-  configured stream (`BUSYGROUP` ignored).
-- Loop: reclaim stale pending entries first (`XAUTOCLAIM`, `min-idle-time`
-  60s, count-limited), then `XREADGROUP ... COUNT read_count BLOCK
-  block_ms STREAMS <streams...> >`.
-- Each entry's `encoding` and `schema` fields are validated
-  (`protobuf` / `cloudflow.v1.CloudFlowEvent`) before the payload is
-  parsed; any decode failure is dead-lettered with `reason=decode_error`
-  and then XACKed (re-delivery would fail identically forever).
-- Transformed events are handed to the HEC batcher; entries are XACKed
-  only once their batch got a 2xx response, or after being confirmed
-  dead-lettered (`reason=hec_rejected` for HTTP 4xx poison events isolated
-  by batch bisection).
-- SIGTERM: stop reading, flush the in-flight batch once, XACK what
-  succeeded, exit 0. Unacked entries simply remain pending -- the
-  at-least-once contract; Splunk-side duplicates are tolerable because
-  `event_id` is preserved.
-
-## Dead-letter stream
-
-`cloudflow:v1:deadletter:sink-splunk`, `MAXLEN ~ 100000`, entry fields
-`reason` (`decode_error` | `hec_rejected`), `origin_stream`, `origin_id`,
-`error`, `payload` (verbatim original bytes). The dead-letter `XADD` must
-succeed before the original entry is XACKed; if it fails, the original
-entry stays pending and is retried (`deadletter.py`).
+- Startup: `XGROUP CREATE <stream> <group> 0 MKSTREAM` per stream (BUSYGROUP
+  ignored). Loop: `XAUTOCLAIM` stale pending (min-idle 60s) then `XREADGROUP
+  ... COUNT read_count BLOCK block_ms ... >`.
+- Each entry's `encoding`/`schema` are validated (`protobuf` /
+  `cloudflow.v1.CloudFlowEvent`) before the payload is unpacked; any decode
+  failure is dead-lettered (`reason=decode_error`) then XACKed.
+- Retry per batch: network/timeout/HTTP 429/5xx back off 1s→30s and retry
+  forever (Redis is the buffer). Other 4xx bisect the batch to isolate poison
+  events, which are dead-lettered (`reason=hec_rejected`) and XACKed; the rest
+  are delivered.
+- Dead-letter stream `cloudflow:v1:deadletter:sink-splunk`, `MAXLEN ~ 100000`,
+  fields `reason`/`origin_stream`/`origin_id`/`error`/`payload`. The XADD must
+  succeed before the origin entry is XACKed (never silent loss).
 
 ## Metrics
 
-One structured JSON stats line on stderr per interval (Convention 7 / D8):
-`splunk_delivery_total`, `splunk_delivery_errors_total`,
-`splunk_retry_total`, `splunk_batch_size` (last), `splunk_delivery_latency_ms_last`
-/ `splunk_delivery_latency_ms_avg`, `deadletter_total`,
-`protobuf_decode_errors_total`, `redis_stream_lag` (per stream, from
-`XINFO GROUPS`).
+One structured JSON `stats` line on stderr per interval (Convention 7 / D8):
+`splunk_delivery_total`, `splunk_delivery_errors_total`, `splunk_retry_total`,
+`deadletter_total`, `protobuf_decode_errors_total`, `splunk_batch_size`,
+`splunk_delivery_latency_ms`. The token never appears in any log line.
 
-## Development
+## Tests
 
-```sh
-# Run the tests (no install required -- tests/conftest.py wires up sys.path):
-python3 -m pytest sinks/cloudflow-sink-splunk/tests/
+`make test` runs three CUnit suites (each skips cleanly if its dependency is
+absent):
 
-# Equivalent, explicit PYTHONPATH form:
-PYTHONPATH=sinks/cloudflow-sink-splunk/src:sinks/cloudflow-sink-splunk/src/cloudflow_pb \
-  python3 -m pytest sinks/cloudflow-sink-splunk/tests/
-```
+- **golden compatibility** — for each `tests/golden/*.json`, rebuild its
+  source `CloudFlowEvent` with the Python bindings
+  (`tests/generate_fixtures.py` → `tests/fixtures/*.pb`), run the C transform,
+  and structurally compare against the golden;
+- **consumer** — private `redis-server`: 100 events → `--once` prints 100
+  mapped events with 0 pending; second-consumer XAUTOCLAIM redelivery; poison
+  entry → dead-letter `decode_error`, acked;
+- **HEC** — a python `http.server` stub: 5xx-then-2xx retried and delivered
+  once; 400 on a 3-event batch bisected (2 delivered, 1 dead-lettered
+  `hec_rejected`); token sent on the wire but never logged.
 
-Redis-dependent tests start a private `redis-server` for the session and
-skip cleanly if one cannot be found/started. Stub-HEC tests run an
-in-process `http.server`; retry backoff is injected (`sleep_fn=...`) so the
-suite never sleeps for real.
+`make test-asan` runs the same suites under `-fsanitize=address,undefined`.
 
 ## systemd
 
-See `systemd/cloudflow-sink-splunk.service`. It expects the HEC token via
-`EnvironmentFile=/etc/cloudflow/splunk-sink.env` (a file containing
-`SPLUNK_HEC_TOKEN=...`, not committed) and restarts on failure.
+See `systemd/cloudflow-sink-splunk.service`. It reads the HEC token from
+`EnvironmentFile=/etc/cloudflow/splunk-sink.env` (a non-committed file
+containing `SPLUNK_HEC_TOKEN=...`) and restarts on failure.

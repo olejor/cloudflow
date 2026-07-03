@@ -1,0 +1,17 @@
+# WP-14 integration manifest: expected Redis Stream XLEN after replaying
+# every fixture pcap in tests/fixtures/dhcp/ exactly once through
+# cloudflow-source-dhcp --replay.
+#
+# Every committed fixture pcap is a single packet (verified against the
+# classic pcap record headers), and the DHCPv4/v6 parsers always emit an
+# event for a well-formed-enough frame -- including the two
+# *_malformed_optlen fixtures, whose expected.md documents that parsing
+# still succeeds (best-effort option resync) -- so the expected count per
+# stream is just the number of v4/v6 fixture files:
+#   11 v4_*.pcap -> cloudflow:v1:wire:dhcpv4
+#    7 v6_*.pcap -> cloudflow:v1:wire:dhcpv6
+#
+# Format: <stream>\t<expected XLEN>. Blank lines and lines starting with '#'
+# are ignored by scripts/run-integration-tests.sh.
+cloudflow:v1:wire:dhcpv4	11
+cloudflow:v1:wire:dhcpv6	7

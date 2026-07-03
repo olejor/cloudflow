@@ -18,6 +18,103 @@ Responsibilities:
 
 This service must not contain Splunk-specific logic.
 
+## WP-11: the `cloudflow-source-dhcp` application
+
+`src/config.{h,c}`, `src/stats.{h,c}`, and `src/main.c` wire the three
+pipeline stages together into the runnable binary
+(`build/cloudflow-source-dhcp`). It loads a YAML config (D6), initializes the
+two bounded SPSC queues, starts the redis-producer, event-formatter, and
+rx-reader (or a pcap replay), runs a periodic structured stats line on the
+main thread, and shuts down in reverse pipeline order (reader first so the
+queues drain, then formatter, then producer).
+
+### Build
+
+```sh
+make -C sources/cloudflow-source-dhcp all    # builds the .a AND the binary
+make -C sources/cloudflow-source-dhcp test   # CUnit suites (rx_reader, formatter)
+make -C sources/cloudflow-source-dhcp clean
+```
+
+`all` builds both `build/libcloudflow-source-dhcp.a` and
+`build/cloudflow-source-dhcp`. The binary links the source library plus
+`libcloudflow-redis.a`, `libcloudflow-packet.a`, `libcloudflow-codec.a`,
+`libcloudflow-core.a`, and `hiredis` / `protobuf-c` / `yaml`.
+
+### Run (live capture)
+
+Needs `CAP_NET_RAW` (see D7 / the veth section above); `CAP_SYS_NICE` is
+optional (SCHED_FIFO attempt, degrades gracefully). Config path via `-c`:
+
+```sh
+sudo build/cloudflow-source-dhcp -c /etc/cloudflow/dhcp-source.yaml
+```
+
+The config schema is `configs/examples/dhcp-source.yaml`. Unknown keys are
+warned and ignored; missing keys default to that example file's values.
+`capture.method` must be `rxring` (any other value is a fatal error).
+`capture.filter` is informational only in v0.1 (D7): the builtin VLAN-aware
+DHCP cBPF filter is always used, and a warning is logged noting this.
+`redis.stream_dhcpv4`/`stream_dhcpv6` are informational too (the producer
+uses the built-in stream names); a mismatch is warned.
+
+### Replay a pcap (integration / M1 mode)
+
+`--replay <pcap>` swaps the rx-reader for a synchronous pcap read, then
+drains both queues (bounded deadline) and exits 0 — this is milestone M1's
+source half and the core of WP-14's integration test. `-c` is still required
+(the config supplies redis endpoints, queue sizing, etc.):
+
+```sh
+build/cloudflow-source-dhcp --replay tests/fixtures/dhcp/v4_discover.pcap \
+    -c /etc/cloudflow/dhcp-source.yaml
+# then, against the configured Redis:
+redis-cli XLEN cloudflow:v1:wire:dhcpv4     # => 1
+redis-cli XRANGE cloudflow:v1:wire:dhcpv4 - +
+# entry fields: schema version encoding event_type payload
+```
+
+`--version` prints the version and exits; `-h`/`--help` prints usage.
+
+### Environment overrides
+
+Applied on top of the loaded YAML (D6):
+
+| Env var | Effect |
+|---|---|
+| `CF_REDIS_ENDPOINTS` | comma-separated `host:port` list, replaces `redis.endpoints` |
+| `CF_INTERFACE` | replaces `capture.interface` |
+| `CF_SOURCE_HOST` | replaces `service.source_host` (else `gethostname()`) |
+
+### Metrics
+
+One structured JSON stats line is emitted every `stats.interval_s` seconds
+(default 10), plus once more at shutdown. It carries every pipeline counter
+and gauge (D8), with the metric names from `AGENTS.md`:
+
+- rx-reader / pcap-replay: `packets_received_total`, `packets_dropped_total`
+  (kernel), `rx_queue_drop_total`, `rx_queue_depth` (gauge),
+  `packets_truncated_total`
+- event-formatter: `events_formatted_total`,
+  `events_formatted_dhcpv4_total`, `events_formatted_dhcpv6_total`,
+  `packets_skipped_total`, `parse_warnings_total`,
+  `events_oversize_dropped_total`, `formatter_queue_depth` (gauge),
+  `formatter_queue_drop_total`
+- redis-producer (from `cf_redis_stats_t`): `redis_queue_depth` (gauge),
+  `xadd_total`, `xadd_errors_total`, `events_lost_total`,
+  `redis_reconnects_total`, `xadd_avg_latency_ns` (derived from
+  `xadd_latency_ns_total / xadd_total`)
+
+With `stats.reset_on_report: true` the counters are read-and-zeroed each line
+(deltas); the default (`false`) reports cumulative counters. Gauges are
+always sampled live.
+
+### systemd
+
+`systemd/cloudflow-source-dhcp.service` runs the binary with
+`-c /etc/cloudflow/dhcp-source.yaml`, `AmbientCapabilities=CAP_NET_RAW
+CAP_SYS_NICE`, `NoNewPrivileges=yes`, and `Restart=on-failure`.
+
 ## WP-08: rx-reader capture module + pcap replay
 
 `src/rx_reader.{h,c}` and `src/pcap_replay.{h,c}` implement the first stage

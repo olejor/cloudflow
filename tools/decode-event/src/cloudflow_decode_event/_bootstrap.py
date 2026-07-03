@@ -60,30 +60,8 @@ def ensure_protobuf_bindings() -> None:
     import cloudflow.v1.envelope_pb2  # noqa: F401  -- re-raises ImportError if still missing
 
 
-def import_sink_transform():
-    """Return ``(transform, config)`` modules from ``cloudflow_sink_splunk``
-    (WP-12), used only for --hec.
-
-    Raises ImportError with an actionable message if the sink package
-    cannot be located either way described in the module docstring.
-    """
-    try:
-        from cloudflow_sink_splunk import config, transform
-
-        return transform, config
-    except ImportError:
-        pass
-
-    ensure_protobuf_bindings()
-    _ensure_on_syspath(_SINK_SRC)
-    try:
-        from cloudflow_sink_splunk import config, transform
-
-        return transform, config
-    except ImportError as exc:
-        raise ImportError(
-            "cloudflow_sink_splunk (WP-12) is not importable, which --hec "
-            "requires. Expected it either pip-installed into this "
-            f"environment, or checked out at {_SINK_SRC} (the standard "
-            "cloudflow monorepo layout)."
-        ) from exc
+# The Splunk sink was rewritten in C (WP-17), so --hec no longer imports a
+# Python sink package; the mapping now lives in this tool's own
+# hec_mapping.py (kept in agreement with the C sink via the shared golden
+# files). Only the generated protobuf bindings are still shared from the
+# sink directory, resolved above.

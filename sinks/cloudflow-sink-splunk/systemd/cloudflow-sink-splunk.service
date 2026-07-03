@@ -10,7 +10,11 @@ Type=simple
 # YAML. File is not committed; deploy it out of band, e.g.:
 #   SPLUNK_HEC_TOKEN=...
 EnvironmentFile=-/etc/cloudflow/splunk-sink.env
-ExecStart=/usr/local/bin/cloudflow-sink-splunk --config /etc/cloudflow/splunk-sink.yaml
+# WP-17: ExecStart is the compiled C binary (was the Python console script).
+ExecStart=/usr/local/bin/cloudflow-sink-splunk -c /etc/cloudflow/splunk-sink.yaml
+# SIGTERM triggers a flush-once-then-exit; give the in-flight batch time.
+KillSignal=SIGTERM
+TimeoutStopSec=15
 Restart=on-failure
 RestartSec=5
 User=cloudflow

@@ -5,13 +5,16 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/cloudflow-source-dhcp --config /etc/cloudflow/dhcp-source.yaml
-Restart=always
+ExecStart=/usr/local/bin/cloudflow-source-dhcp -c /etc/cloudflow/dhcp-source.yaml
+Restart=on-failure
 RestartSec=5
 User=cloudflow
 Group=cloudflow
-AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
-NoNewPrivileges=true
+# CAP_NET_RAW: open the AF_PACKET/PACKET_RX_RING capture socket.
+# CAP_SYS_NICE: best-effort SCHED_FIFO on the rx-reader thread (its absence
+# is logged and capture continues at normal priority, so it is optional).
+AmbientCapabilities=CAP_NET_RAW CAP_SYS_NICE
+NoNewPrivileges=yes
 
 [Install]
 WantedBy=multi-user.target
