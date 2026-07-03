@@ -22,6 +22,13 @@ target/
 *.pcap
 *.pcapng
 
+# ...except the WP-06/07 fixture corpus: these are synthetically generated
+# (never captured) by tests/fixtures/dhcp/generate_fixtures.py from
+# documentation address space only, and are committed on purpose so tests
+# don't need protoc/scapy at test time -- see docs/design/02-packet-and-parsing.md
+# ("Fixture corpus").
+!/tests/fixtures/dhcp/*.pcap
+
 # editor files
 .vscode/
 .idea/
