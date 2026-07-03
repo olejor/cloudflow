@@ -19,6 +19,7 @@ first, then the spec that contains your WP:
 | `04-sink-splunk.md` | WP-12 Splunk sink, canonical protobuf-to-Splunk JSON mapping |
 | `05-tools-tests-ci.md` | WP-13 debug tools, WP-14 integration environment, WP-15 benchmarks, WP-16 CI |
 | `06-sink-splunk-c.md` | WP-17 C rewrite of the Splunk sink (mapping contract unchanged) |
+| `07-dns-source.md` | v0.2: wire-observed DNS source (correlation, RTT, leg classification) |
 
 Authoritative background documents (already in the repo, do not contradict them):
 `README.md`, `AGENTS.md`, `docs/architecture.md`, `docs/event-model.md`,
