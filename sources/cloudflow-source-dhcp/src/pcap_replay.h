@@ -3,7 +3,7 @@
 
 /* WP-08: classic-pcap offline reader, lifted-and-adapted from
  * import/network_dhcp_collector/src/replay.c (cap_run_pcap) per
- * docs/design/03-source-dhcp.md. Feeds the same cf_packet_item_t /
+ * docs/dhcp-source.md. Feeds the same cf_packet_item_t /
  * cf_queue_t used by rx_reader.h, so replay and live capture are
  * interchangeable inputs to the rest of the pipeline (WP-11's --replay
  * flag). */

@@ -2,8 +2,8 @@
 #define CF_SOURCE_DHCP_CONFIG_H
 
 /* WP-11: YAML config loading for the cloudflow-source-dhcp application, per
- * docs/design/03-source-dhcp.md's WP-11 section and D6
- * (docs/design/00-overview.md). Loads the schema documented by
+ * docs/dhcp-source.md's WP-11 section and D6
+ * (docs/architecture.md). Loads the schema documented by
  * configs/examples/dhcp-source.yaml with libyaml, doing a flat mapping walk
  * (service/capture/queues/redis/stats sections, each a simple key -> scalar
  * or key -> sequence-of-scalars mapping -- no anchors/aliases/multi-doc

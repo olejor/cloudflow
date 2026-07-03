@@ -6,10 +6,10 @@
  * (cf_dhcpv4_parse/cf_dhcpv6_parse, WP-06/07), builds the CloudFlowEvent
  * envelope (proto/cloudflow/v1/envelope.proto + common.proto), packs it with
  * protobuf-c into a cf_event_item_t, and pushes it to `out`. Per D10
- * (docs/design/00-overview.md), this is the only place in the source that
+ * (docs/architecture.md), this is the only place in the source that
  * parses DHCP or allocates -- the rx-reader thread (WP-08) does neither.
  *
- * See docs/design/03-source-dhcp.md's WP-10 section for the authoritative
+ * See docs/dhcp-source.md's WP-10 section for the authoritative
  * spec this implements. */
 
 #include <stdint.h>

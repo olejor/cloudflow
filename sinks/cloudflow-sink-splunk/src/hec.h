@@ -3,7 +3,7 @@
 
 /* WP-17 -- batched Splunk HEC delivery (libcurl) with retry/backoff/bisect.
  *
- * Retry policy (docs/design/04-sink-splunk.md, "HEC delivery and retry"):
+ * Retry policy (docs/splunk-output.md, "HEC delivery and retry"):
  * network errors/timeouts/HTTP 429/5xx back off 1s doubling to a 30s cap and
  * retry forever (Redis is the buffer). Other 4xx bisect the batch recursively
  * (floor size 1) to isolate the poison event(s), which are reported back for

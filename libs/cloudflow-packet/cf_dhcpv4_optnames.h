@@ -5,7 +5,7 @@
 
 /* Canonical DHCPv4 option-code -> name table, sourced from the IANA
  * "BOOTP Vendor Extensions and DHCP Options" registry. Unknown codes return
- * "" (never a guess), per docs/design/02-packet-and-parsing.md's "Shared
+ * "" (never a guess), per docs/dhcp-source.md's "Shared
  * parser conventions".
  *
  * The returned pointer is to a static string literal; callers that need an

@@ -8,7 +8,7 @@
  * are stopped, the queue is drained, and one machine-readable summary line
  * is printed.
  *
- * Producer lifecycle note (see docs/design/03-source-dhcp.md WP-09 and
+ * Producer lifecycle note (see docs/dhcp-source.md WP-09 and
  * libs/cloudflow-redis/tests/cf_redis_producer_test.c): this binary never
  * calls cf_stop_notify(). Shutdown relies solely on cf_redis_producer_stop()
  * (its own producer-local stop flag, independent of the process-wide

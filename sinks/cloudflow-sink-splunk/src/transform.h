@@ -5,8 +5,8 @@
  *
  * Reproduces, in C, exactly the JSON that the WP-12 Python transform produced
  * via google.protobuf.json_format.MessageToDict(preserving_proto_field_name=
- * True) wrapped in the HEC envelope (docs/design/04-sink-splunk.md,
- * "Canonical HEC mapping"; docs/design/06-sink-splunk-c.md, "Mapping
+ * True) wrapped in the HEC envelope (docs/splunk-output.md,
+ * "Canonical HEC mapping"; docs/splunk-output.md, "Mapping
  * compatibility"):
  *
  *   - proto field names verbatim (snake_case);

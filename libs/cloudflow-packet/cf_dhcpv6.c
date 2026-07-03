@@ -2,7 +2,7 @@
  * RELAY-FORW/RELAY-REPL hop-count/link-address/peer-address), and the
  * top-level raw option wire walk. The decoded-option builder (option-by-
  * option semantic decode) lives in cf_dhcpv6_decode.c; shared helpers live
- * in cf_dhcpv6_util.c. See docs/design/02-packet-and-parsing.md for the
+ * in cf_dhcpv6_util.c. See docs/dhcp-source.md for the
  * spec this implements, and import/network_dhcp_collector/src/main.c's
  * process_dhcpv6 for the TLV-walk shape this is lifted from (msg-type +
  * 24-bit xid, then a flat code/len/value option loop with memcpy
@@ -209,7 +209,7 @@ static const char *event_type_for_message_type(Cloudflow__V1__DhcpV6Header__Mess
         return "dhcpv6.relay-repl.observed";
     /* LEASEQUERY/LEASEQUERY_REPLY/LEASEQUERY_DONE/LEASEQUERY_DATA are valid
      * wire message types but are not (yet) in the event-type vocabulary
-     * (docs/design/02-packet-and-parsing.md's WP-07 section only lists the
+     * (docs/dhcp-source.md's WP-07 section only lists the
      * above plus the two relay types) -- fall through to the generic type,
      * same as MESSAGE_TYPE_UNSPECIFIED / any unassigned wire value. */
     case CLOUDFLOW__V1__DHCP_V6_HEADER__MESSAGE_TYPE__LEASEQUERY:

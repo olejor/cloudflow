@@ -3,7 +3,7 @@
 #
 # WP-02: regenerates all protobuf bindings for the CloudFlow schema under
 # proto/cloudflow/v1/*.proto. Generated code is committed (Decision D2 in
-# docs/design/00-overview.md) so builds and CI never need protoc. Run this
+# docs/architecture.md) so builds and CI never need protoc. Run this
 # script (via `make proto`) whenever a .proto file changes, and commit the
 # resulting diff.
 #

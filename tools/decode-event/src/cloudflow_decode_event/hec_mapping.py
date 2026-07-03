@@ -1,6 +1,6 @@
 """Canonical CloudFlowEvent -> Splunk HEC JSON mapping (vendored copy).
 
-This is the same contract defined in docs/design/04-sink-splunk.md
+This is the same contract defined in docs/splunk-output.md
 ("Canonical HEC mapping"). It originally lived in the Python Splunk sink,
 which was rewritten in C (WP-17); this tool stays Python, so it carries its
 own faithful copy of the mapping for ``decode-event --hec``. The C sink's

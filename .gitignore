@@ -9,9 +9,9 @@ target/
 
 # NOTE: generated protobuf bindings (libs/cloudflow-codec/gen/,
 # sinks/cloudflow-sink-splunk/src/cloudflow_pb/) are intentionally NOT
-# ignored -- per Decision D2 (docs/design/00-overview.md) generated code is
+# ignored -- per Decision D2 (docs/architecture.md) generated code is
 # committed so builds and CI never need protoc. See WP-02
-# (docs/design/01-foundations.md) and scripts/generate-protobuf.sh.
+# (docs/building-and-testing.md) and scripts/generate-protobuf.sh.
 
 # local config and secrets
 *.env
@@ -25,7 +25,7 @@ target/
 # ...except the WP-06/07 fixture corpus: these are synthetically generated
 # (never captured) by tests/fixtures/dhcp/generate_fixtures.py from
 # documentation address space only, and are committed on purpose so tests
-# don't need protoc/scapy at test time -- see docs/design/02-packet-and-parsing.md
+# don't need protoc/scapy at test time -- see docs/dhcp-source.md
 # ("Fixture corpus").
 !/tests/fixtures/dhcp/*.pcap
 

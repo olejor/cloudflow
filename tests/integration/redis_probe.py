@@ -5,7 +5,7 @@ scripts/run-integration-tests.sh (WP-14).
 Deliberately stdlib-only (socket only): the sink/source binaries already
 depend on hiredis for the real pipeline, but the *test harness* should not
 require the optional `redis` PyPI package (it is not one of the promised
-project dependencies -- see docs/design/00-overview.md convention 3, Python
+project dependencies -- see docs/architecture.md convention 3, Python
 deps are protobuf/redis/requests/PyYAML for the *sink*, which is now C; the
 test env only promises python3 + the generated `cloudflow_pb` bindings).
 

@@ -1,4 +1,4 @@
-"""pytest coverage for cloudflow-decode-event (docs/design/05-tools-tests-ci.md,
+"""pytest coverage for cloudflow-decode-event (docs/building-and-testing.md,
 WP-13 acceptance criteria):
 
 - ``--file`` on an event built directly with the Python bindings matches

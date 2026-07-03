@@ -1,4 +1,4 @@
-"""pytest coverage for cloudflow-stream-inspect (docs/design/05-tools-tests-ci.md,
+"""pytest coverage for cloudflow-stream-inspect (docs/building-and-testing.md,
 WP-13 acceptance criteria): against a private redis-server, populate a
 stream + group, assert the report shows it and pending goes to 0 after ack,
 and the --pending listing shows a pending entry's delivery count. Also

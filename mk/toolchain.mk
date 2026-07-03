@@ -2,7 +2,7 @@
 #
 # Single definition of the CloudFlow C toolchain, included by every
 # library/app Makefile in the repo (Convention 3 in
-# docs/design/00-overview.md, "Conventions for implementers"):
+# docs/architecture.md, "Conventions for implementers"):
 #
 #   C11, -Wall -Wextra -Werror -O2 -std=gnu11 -D_FORTIFY_SOURCE=2
 #   -fstack-protector-strong -fPIE, hardened link flags

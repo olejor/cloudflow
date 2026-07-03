@@ -1,4 +1,4 @@
-"""Hex dump helper for decode-failure diagnostics (docs/design/05-tools-tests-ci.md,
+"""Hex dump helper for decode-failure diagnostics (docs/building-and-testing.md,
 WP-13: "Exit nonzero on decode failure with the protobuf error and a hex
 dump of the first 64 bytes.").
 """

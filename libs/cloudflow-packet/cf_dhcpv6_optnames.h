@@ -5,7 +5,7 @@
 
 /* Canonical DHCPv6 option-code -> name table, sourced from the IANA
  * "DHCPv6 Option Codes" registry. Unknown codes return "" (never a guess),
- * per docs/design/02-packet-and-parsing.md's "Shared parser conventions".
+ * per docs/dhcp-source.md's "Shared parser conventions".
  *
  * The returned pointer is to a static string literal; callers that need an
  * owned copy must duplicate it themselves (cf_dhcpv6.c always does, since

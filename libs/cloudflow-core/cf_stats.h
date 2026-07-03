@@ -3,7 +3,7 @@
 
 #include <stdatomic.h>
 
-/* Atomic counter primitives (D8 in docs/design/00-overview.md), modeled on
+/* Atomic counter primitives (D8 in docs/architecture.md), modeled on
  * the ATOMIC_* macro pattern in
  * import/network_syslog_collector/src/stats.h. Core only provides these
  * primitives; each app defines its own stats struct out of atomic_ulong (or

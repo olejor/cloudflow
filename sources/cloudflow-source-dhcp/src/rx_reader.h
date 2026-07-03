@@ -4,11 +4,11 @@
 /* WP-08: TPACKET_V3 mmap RX ring capture, lifted from
  * import/network_syslog_collector/src/rx-ring.c (socket setup, block ring
  * config, epoll wait loop, block_walk, TP_STATUS_KERNEL handback,
- * SCHED_FIFO attempt, PACKET_STATISTICS) per docs/design/03-source-dhcp.md.
+ * SCHED_FIFO attempt, PACKET_STATISTICS) per docs/dhcp-source.md.
  * Do NOT copy import/network_dhcp_collector/src/ring.c's per-frame walk --
  * it is wrong for TPACKET_V3.
  *
- * Per D10 (docs/design/00-overview.md), this module does no parsing: it
+ * Per D10 (docs/architecture.md), this module does no parsing: it
  * copies the raw frame plus ring timestamp into a cf_packet_item_t and
  * pushes it to `out`. All DHCP parsing happens later, in the
  * event-formatter thread (WP-10). */

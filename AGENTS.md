@@ -275,12 +275,19 @@ Update docs when changing architecture, schemas, stream names, or failure behavi
 Important docs:
 
 ```text
-docs/architecture.md
-docs/event-model.md
-docs/redis-streams.md
-docs/splunk-output.md
-docs/failure-modes.md
+docs/architecture.md            system overview, design decisions (D1..D11), repo layout
+docs/event-model.md              envelope, event types, protobuf contract
+docs/redis-streams.md            transport, wire streams, consumer groups, dead-letter
+docs/dhcp-source.md              the implemented DHCP source
+docs/dns-source.md                the designed (not yet implemented) DNS source
+docs/splunk-output.md            the sink: consumer semantics, HEC mapping, retry policy
+docs/failure-modes.md            loss/retry decisions and the tests that prove them
+docs/building-and-testing.md    build system, codegen, tests, CI, benchmark, debug tools
 ```
+
+Docs describe the system in the present tense: what it is, and — for the
+DNS source — what is designed. They are not a changelog; do not narrate
+"we did X, then replaced it with Y" in prose. Git history is the changelog.
 
 Every non-trivial design choice should be documented, especially choices involving data loss, retries, stream trimming, event identity, or schema evolution.
 
@@ -298,6 +305,6 @@ Unless a task explicitly requests it, do not implement:
 
 The first deliverable was DHCPv4/DHCPv6 -> Redis Streams -> Splunk (v0.1,
 complete). A **wire-observed DNS source** (v0.2) has now been explicitly
-requested and is designed in `docs/design/07-dns-source.md`; it reuses the
-v0.1 libraries and adds a stateful query/response correlation stage. The
+requested and is designed in `docs/dns-source.md`; it reuses the v0.1
+libraries and adds a stateful query/response correlation stage. The
 repository can remain extensible for the remaining items above.

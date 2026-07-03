@@ -20,7 +20,7 @@ cloudflow-decode-event = "cloudflow_decode_event.cli:main"
 # This tool has one *mandatory* external dependency and one *optional* one,
 # both living outside this directory in sinks/cloudflow-sink-splunk/ (WP-13
 # depends on WP-02; the --hec flag additionally reuses WP-12's mapping code
-# per docs/design/05-tools-tests-ci.md):
+# per docs/building-and-testing.md):
 #
 #   - cloudflow / cloudflow.v1  (WP-02 generated protobuf bindings, mandatory
 #     for every invocation -- there is no decoding without them). Declared
