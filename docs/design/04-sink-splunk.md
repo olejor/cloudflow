@@ -1,6 +1,13 @@
 # cloudflow-sink-splunk
 
-Work package WP-12. Python 3.9+ (decision D1). This document also defines the
+Work package WP-12. Python 3.9+ (decision D1 as originally written).
+
+> **Status note:** WP-12 was implemented and merged, then superseded by a C
+> rewrite (WP-17, `06-sink-splunk-c.md`) per the revised D1. Everything in
+> this document other than the implementation language — the consumer
+> semantics, the canonical HEC mapping, retry/dead-letter policy — remains
+> the authoritative behavioral contract, and the golden files produced here
+> are the compatibility tests for the C implementation. This document also defines the
 **canonical CloudFlowEvent → Splunk JSON mapping**, which is a contract:
 `tools/decode-event` (WP-13) reuses it, and changing it later is a schema
 change that needs a docs update.

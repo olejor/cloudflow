@@ -18,6 +18,7 @@ first, then the spec that contains your WP:
 | `03-source-dhcp.md` | WP-08 capture (rx-reader), WP-09 Redis producer, WP-10 event formatter, WP-11 source app |
 | `04-sink-splunk.md` | WP-12 Splunk sink, canonical protobuf-to-Splunk JSON mapping |
 | `05-tools-tests-ci.md` | WP-13 debug tools, WP-14 integration environment, WP-15 benchmarks, WP-16 CI |
+| `06-sink-splunk-c.md` | WP-17 C rewrite of the Splunk sink (mapping contract unchanged) |
 
 Authoritative background documents (already in the repo, do not contradict them):
 `README.md`, `AGENTS.md`, `docs/architecture.md`, `docs/event-model.md`,
@@ -54,12 +55,13 @@ Numbered so specs and PRs can reference them. If an implementer needs to
 deviate, the deviation must be called out in the PR description and these docs
 updated.
 
-- **D1 — Languages.** The DHCP source and all shared hot-path libraries are
-  C11 (matches `src/`, the proven legacy code, and the low-allocation
-  requirement). The Splunk sink and debug tools are Python 3.9+: they are
-  I/O-bound, not hot-path, and the protobuf/HTTP/JSON work is dramatically
-  easier to implement correctly. A compiled rewrite of the sink stays possible
-  later because the Redis entry format is the contract, not the code.
+- **D1 — Languages** *(revised)*. The DHCP source, all shared hot-path
+  libraries, **and the Splunk sink** are C11. The sink was first implemented
+  in Python (WP-12) to pin the behavioral contract cheaply, then rewritten in
+  C (WP-17, `06-sink-splunk-c.md`) for per-event CPU cost ahead of
+  higher-rate sources; the WP-12 golden files remain the cross-language
+  contract. Debug tools (`decode-event`, `stream-inspect`) stay Python — they
+  are interactive utilities outside the data path.
 - **D2 — Protobuf runtime.** `protobuf-c` for C (the schema uses strings and
   repeated nested messages heavily; nanopb would fight it), standard
   `protobuf` for Python. Generated code is committed (see WP-02) so builds
