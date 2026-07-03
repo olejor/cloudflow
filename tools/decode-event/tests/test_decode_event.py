@@ -2,10 +2,10 @@
 WP-13 acceptance criteria):
 
 - ``--file`` on an event built directly with the Python bindings matches
-  ``MessageToDict(preserving_proto_field_name=True)``, the same rule WP-12
-  uses; ``--hec`` output on the same event equals
-  ``cloudflow_sink_splunk.transform``'s own output byte-for-byte (imported,
-  never duplicated -- see ``cloudflow_decode_event/_bootstrap.py``).
+  ``MessageToDict(preserving_proto_field_name=True)``, the same rule the
+  sink uses; ``--hec`` output on the same event equals the tool's own
+  vendored ``hec_mapping`` output and carries the canonical HEC envelope
+  (the C sink, WP-17, is kept in agreement via the shared golden files).
 - argument-error handling: bad flag combinations exit nonzero and never
   touch Redis or stdin.
 - decode-failure path: garbage bytes exit nonzero, print the protobuf error
@@ -19,11 +19,9 @@ import json
 
 from cloudflow.v1 import common_pb2, dhcp_pb2
 from cloudflow.v1.envelope_pb2 import CloudFlowEvent
-from cloudflow_sink_splunk import config as sink_config
-from cloudflow_sink_splunk import transform as sink_transform
 from google.protobuf import json_format
 
-from cloudflow_decode_event import cli
+from cloudflow_decode_event import cli, hec_mapping
 
 STREAM_NAME = "cloudflow:v1:wire:dhcpv4"
 GROUP = "sink-splunk"
@@ -123,10 +121,10 @@ def test_file_json_matches_message_to_dict(tmp_path, capsys):
     assert json.loads(captured.out) == json_format.MessageToDict(event, preserving_proto_field_name=True)
 
 
-# -- --hec: output equals cloudflow_sink_splunk.transform's own output --------
+# -- --hec: canonical HEC envelope + matches the vendored mapping -------------
 
 
-def test_file_hec_matches_sink_transform_output(tmp_path, capsys):
+def test_file_hec_matches_mapping_and_envelope(tmp_path, capsys):
     path, event = _event_file(tmp_path)
 
     exit_code = cli.run(["--file", str(path), "--hec"])
@@ -135,15 +133,19 @@ def test_file_hec_matches_sink_transform_output(tmp_path, capsys):
     assert exit_code == 0
     assert captured.err == ""
 
-    splunk_cfg = sink_config.SplunkConfig(
-        hec_url="unused",
-        hec_token_env="UNUSED_ENV_VAR",
-        index="",
-        sourcetypes={},
-        include_raw_payload=False,
+    # The CLI uses the tool's vendored hec_mapping with default config.
+    expected = hec_mapping.render_hec_line(
+        event, event.envelope.stream_name, hec_mapping.SplunkConfig()
     )
-    expected = sink_transform.render_hec_line(event, event.envelope.stream_name, splunk_cfg)
     assert captured.out.rstrip("\n") == expected
+
+    # And the emitted line is the canonical HEC envelope: a JSON object with
+    # time as a number, the fixed envelope keys, and event == MessageToDict.
+    hec = json.loads(captured.out)
+    assert isinstance(hec["time"], (int, float))
+    assert set(hec) >= {"time", "host", "source", "sourcetype", "event"}
+    assert hec["sourcetype"] == "cloudflow:dhcpv4"
+    assert hec["event"] == json_format.MessageToDict(event, preserving_proto_field_name=True)
 
 
 # -- argument-error handling ---------------------------------------------------

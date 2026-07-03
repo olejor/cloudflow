@@ -1,14 +1,35 @@
 """Builds representative CloudFlowEvent protos directly with the Python
-bindings (docs/design/04-sink-splunk.md acceptance criteria: "...or by
-generate_fixtures.py building events directly with the Python bindings
-until those [WP-06/07 round-trip fixtures] land" -- they have not landed
-yet, so this module is that fallback).
+bindings and emits their packed protobuf bytes as fixture inputs for the C
+sink's golden-compatibility tests (WP-17, docs/design/06-sink-splunk-c.md).
+
+The WP-12 Python transform that these events used to be fed through has been
+removed in the C rewrite; this module survives as the *golden generator* --
+it is the oracle that produces the exact CloudFlowEvent bytes the committed
+tests/golden/*.json goldens were derived from, so the C transform can be
+proven structurally identical against the same inputs.
+
+Run as a script to (re)write the packed fixtures the C test reads:
+
+    PYTHONPATH=../src/cloudflow_pb python3 generate_fixtures.py [OUTDIR]
+
+(default OUTDIR = ./fixtures next to this file). Each event is written as
+<name>.pb (raw CloudFlowEvent.SerializeToString() bytes).
 
 Uses documentation address space (RFC 5737 IPv4, RFC 3849 IPv6) and a
 locally-administered MAC (Convention 6).
 """
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Allow running straight out of the checkout without setting PYTHONPATH: the
+# generated bindings live next to the (now C-only) sink, under src/cloudflow_pb.
+_HERE = Path(__file__).resolve().parent
+_PB_ROOT = _HERE.parent / "src" / "cloudflow_pb"
+if _PB_ROOT.is_dir() and str(_PB_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PB_ROOT))
 
 from cloudflow.v1 import common_pb2, dhcp_pb2
 from cloudflow.v1.envelope_pb2 import CloudFlowEvent
@@ -203,3 +224,31 @@ def dhcpv6_solicit_event() -> CloudFlowEvent:
     )
 
     return CloudFlowEvent(envelope=envelope, dhcpv6_packet=packet_event)
+
+
+# Fixture name -> builder. These names match tests/golden/<name>.json and the
+# .pb files the C golden test reads from the fixtures directory.
+FIXTURES = {
+    "dhcpv4_discover": lambda: dhcpv4_discover_event(),
+    "dhcpv4_discover_raw_payload_stripped": lambda: dhcpv4_discover_event(with_raw_payload=True),
+    "dhcpv6_solicit": lambda: dhcpv6_solicit_event(),
+}
+
+
+def write_fixtures(outdir: Path) -> None:
+    outdir.mkdir(parents=True, exist_ok=True)
+    for name, build in FIXTURES.items():
+        event = build()
+        (outdir / f"{name}.pb").write_bytes(event.SerializeToString())
+        print(f"wrote {outdir / (name + '.pb')}")
+
+
+def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    outdir = Path(argv[0]) if argv else (_HERE / "fixtures")
+    write_fixtures(outdir)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

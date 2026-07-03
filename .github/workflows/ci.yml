@@ -15,8 +15,8 @@ env:
   # for the C toolchain.
   APT_PACKAGES: >-
     gcc make pkg-config protobuf-compiler protobuf-c-compiler
-    libprotobuf-c-dev libhiredis-dev libyaml-dev libcunit1-dev
-    python3 python3-pip
+    libprotobuf-c-dev libhiredis-dev libyaml-dev libcurl4-openssl-dev
+    libcunit1-dev redis-server python3 python3-pip
 
 jobs:
   # `make build` + `make test` (unit tests; scripts/run-integration-tests.sh
@@ -90,6 +90,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ${{ env.APT_PACKAGES }}
 
+      - name: Install Python dependencies
+        run: python3 -m pip install --user protobuf
+
       - name: make test-tsan
         run: make test-tsan
 
@@ -125,18 +128,20 @@ jobs:
           set -uo pipefail
           shopt -s nullglob
           ROOT="$(pwd)"
-          SINK_DIR="$ROOT/sinks/cloudflow-sink-splunk"
           STATUS=0
 
-          if [ -d "$SINK_DIR/tests" ]; then
-            echo "=== pytest: sinks/cloudflow-sink-splunk ==="
-            (cd "$SINK_DIR" && PYTHONPATH="src:src/cloudflow_pb" python3 -m pytest tests -v)
-            STATUS=$((STATUS || $?))
-          fi
-
+          # The Splunk sink is C as of WP-17 (its C suites run under
+          # `make test`); it no longer carries pytest files, so it is not
+          # discovered here. Only directories that actually contain
+          # test_*.py are run below.
+          SINK_DIR="$ROOT/sinks/cloudflow-sink-splunk"
           for tool_dir in "$ROOT"/tools/*/; do
             tool_dir="${tool_dir%/}"
             [ -d "$tool_dir/tests" ] || continue
+            # Skip directories with no pytest files (e.g. a tool whose tests
+            # are C or fixtures-only) so pytest never exits 5 on empty collection.
+            pyt=("$tool_dir"/tests/test_*.py)
+            [ ${#pyt[@]} -gt 0 ] || continue
             name="$(basename "$tool_dir")"
             echo "=== pytest: tools/$name ==="
             # Generic PYTHONPATH covering both a src/ layout (mirroring the
