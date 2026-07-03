@@ -36,3 +36,33 @@ mkdir -p tests/fuzz/testcases tests/fuzz/findings
 timeout 10m afl-fuzz -i tests/fuzz/testcases -o tests/fuzz/findings \
     -- ./tests/fuzz/decap_fuzz @@
 ```
+
+## Fuzzing cf_dhcpv4_parse() (WP-06)
+
+`dhcpv4_fuzz.c` is the same style of harness for the DHCPv4 parser
+(`libs/cloudflow-packet/cf_dhcpv4.c`): it reads one DHCPv4 payload (the
+bytes that would follow the UDP header -- not a full frame) from
+`argv[1]`/stdin, calls `cf_dhcpv4_parse()`, and if that succeeds also packs
+and frees the resulting event (so packing/freeing a maximally-populated,
+possibly-malformed tree is exercised too). Build it the same way:
+
+```sh
+make -C libs/cloudflow-packet all   # build/libcloudflow-packet.a
+make -C libs/cloudflow-codec all    # build/libcloudflow-codec.a
+make -C tests/fuzz all              # tests/fuzz/dhcpv4_fuzz
+```
+
+To fuzz with AFL, seed with the DHCPv4 payloads extracted from
+`tests/fixtures/dhcp/v4_*.pcap` (strip Ethernet/IP/UDP -- e.g. via scapy's
+`bytes(pkt[UDP].payload)`) and run the same way as `decap_fuzz` above,
+substituting `./tests/fuzz/dhcpv4_fuzz`.
+
+If AFL isn't available, `dhcpv4_fuzz_quick_check.sh` is a one-shot
+fallback: it builds an ASan+UBSan `dhcpv4_fuzz`, extracts a seed payload
+from every `v4_*.pcap` fixture, runs the harness over each seed, generates
+1000 deterministic truncation/bit-flip variants of those seeds, and runs
+the harness over all of them, failing if anything crashes or leaks.
+
+```sh
+./tests/fuzz/dhcpv4_fuzz_quick_check.sh
+```
