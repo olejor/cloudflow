@@ -288,7 +288,6 @@ Every non-trivial design choice should be documented, especially choices involvi
 
 Unless a task explicitly requests it, do not implement:
 
-- DNS source,
 - syslog source,
 - ClickHouse sink,
 - MySQL/MariaDB sink,
@@ -297,4 +296,8 @@ Unless a task explicitly requests it, do not implement:
 - HTTP parsing,
 - application instrumentation agents.
 
-The repository can remain extensible for these, but the first deliverable is DHCPv4/DHCPv6 -> Redis Streams -> Splunk.
+The first deliverable was DHCPv4/DHCPv6 -> Redis Streams -> Splunk (v0.1,
+complete). A **wire-observed DNS source** (v0.2) has now been explicitly
+requested and is designed in `docs/design/07-dns-source.md`; it reuses the
+v0.1 libraries and adds a stateful query/response correlation stage. The
+repository can remain extensible for the remaining items above.
