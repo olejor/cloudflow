@@ -43,6 +43,12 @@ CODEC_LIB     := $(CODEC_DIR)/build/libcloudflow-codec.a
 REDIS_DIR := $(ROOT)/libs/cloudflow-redis
 REDIS_LIB := $(REDIS_DIR)/build/libcloudflow-redis.a
 
+# The generic capture layer (rx stats, D9 queue policy, pcap replay) the DNS
+# event stage (dns_stage.c) and its replay test build on, mirroring the DHCP
+# source's CAPTURE wiring in sources/cloudflow-source-dhcp/Makefile.
+CAPTURE_DIR := $(ROOT)/libs/cloudflow-capture
+CAPTURE_LIB := $(CAPTURE_DIR)/build/libcloudflow-capture.a
+
 FIXTURES_DIR := $(ROOT)/tests/fixtures/dns
 
 YAML_CFLAGS    := $(shell pkg-config --cflags yaml-0.1)
@@ -52,7 +58,7 @@ HIREDIS_LIBS   := $(shell pkg-config --libs hiredis)
 PROTOBUF_CFLAGS := $(shell pkg-config --cflags libprotobuf-c)
 PROTOBUF_LIBS   := $(shell pkg-config --libs libprotobuf-c)
 
-CPPFLAGS := -I. -Isrc -I$(CORE_DIR) -I$(PACKET_DIR) -I$(CODEC_GEN_DIR) -I$(REDIS_DIR) \
+CPPFLAGS := -I. -Isrc -I$(CORE_DIR) -I$(CAPTURE_DIR) -I$(PACKET_DIR) -I$(CODEC_GEN_DIR) -I$(REDIS_DIR) \
             $(PROTOBUF_CFLAGS) $(YAML_CFLAGS) $(HIREDIS_CFLAGS)
 
 BUILD_DIR := build
@@ -107,6 +113,8 @@ $(CODEC_LIB):
 	$(MAKE) -C $(CODEC_DIR) all
 $(REDIS_LIB):
 	$(MAKE) -C $(REDIS_DIR) all
+$(CAPTURE_LIB):
+	$(MAKE) -C $(CAPTURE_DIR) all
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -114,22 +122,22 @@ $(BUILD_DIR):
 # --- binary (WP-DNS07): main.o + app lib + all shared libs ------------------
 BIN_LDLIBS := $(HIREDIS_LIBS) $(PROTOBUF_LIBS) $(YAML_LIBS) -pthread
 
-$(BIN): $(BUILD_DIR)/src/main.o $(LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB)
-	$(LINK.o) -o $@ $(BUILD_DIR)/src/main.o $(LIB) $(REDIS_LIB) $(PACKET_LIB) \
+$(BIN): $(BUILD_DIR)/src/main.o $(LIB) $(CAPTURE_LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB)
+	$(LINK.o) -o $@ $(BUILD_DIR)/src/main.o $(LIB) $(CAPTURE_LIB) $(REDIS_LIB) $(PACKET_LIB) \
 	    $(CODEC_LIB) $(CORE_LIB) $(BIN_LDLIBS)
 
 # --- plain CUnit test binaries ----------------------------------------------
-$(TEST_BINS): $(BUILD_DIR)/%: tests/%.c $(LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB) | $(BUILD_DIR)
+$(TEST_BINS): $(BUILD_DIR)/%: tests/%.c $(LIB) $(CAPTURE_LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(TEST_CPPFLAGS) -o $@ $< \
-	    $(LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB) $(TEST_LDLIBS)
+	    $(LIB) $(CAPTURE_LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB) $(TEST_LDLIBS)
 
 test: $(TEST_BINS)
 	@set -e; for t in $(TEST_BINS); do echo "== $$t =="; ./$$t; done
 
 # --- ASan+UBSan test binaries -----------------------------------------------
-$(TEST_ASAN_BINS): $(BUILD_DIR)/%_asan: tests/%.c $(ASAN_APP_OBJS) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB) | $(BUILD_DIR)
+$(TEST_ASAN_BINS): $(BUILD_DIR)/%_asan: tests/%.c $(ASAN_APP_OBJS) $(CAPTURE_LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB) | $(BUILD_DIR)
 	$(CC) $(ASAN_CFLAGS) $(TEST_CPPFLAGS) -o $@ $< \
-	    $(ASAN_APP_OBJS) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB) $(ASAN_LDLIBS)
+	    $(ASAN_APP_OBJS) $(CAPTURE_LIB) $(REDIS_LIB) $(PACKET_LIB) $(CODEC_LIB) $(CORE_LIB) $(ASAN_LDLIBS)
 
 test-asan: $(TEST_ASAN_BINS)
 	@set -e; for t in $(TEST_ASAN_BINS); do echo "== $$t (asan) =="; ./$$t; done
