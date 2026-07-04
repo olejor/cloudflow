@@ -34,6 +34,7 @@ int main(int argc, char **argv)
     static uint8_t frame[MAX_FRAME_LEN];
     size_t frame_len;
     cf_decap_udp_t out;
+    cf_decap_tcp_t out_tcp;
     FILE *f;
 
     if (argc >= 2) {
@@ -52,6 +53,9 @@ int main(int argc, char **argv)
         fclose(f);
 
     (void)cf_decap_udp(frame, frame_len, &out);
+    /* Fuzz the TCP decap path on the same input too; same "never crashes"
+     * contract, return code and fields intentionally unchecked. */
+    (void)cf_decap_tcp(frame, frame_len, &out_tcp);
 
     return 0;
 }

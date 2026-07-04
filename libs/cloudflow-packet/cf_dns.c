@@ -107,7 +107,9 @@ static const char *dns_type_name(uint32_t t, char *scratch, size_t scratch_len)
  * Returns 1 on a clean decode, 0 on any malformation (bad/forward/self
  * pointer, pointer-jump or name-length limit exceeded, reserved label type,
  * or a read past msg_len). On malformation `out` still holds the best partial
- * presentation and `*consumed` is a safe non-negative advance.
+ * presentation and `*consumed` is a safe non-negative advance. In every case --
+ * success or failure -- `out` is left NUL-terminated, so callers may treat it as
+ * a C string regardless of the return value.
  */
 static int decode_name(const uint8_t *msg, size_t msg_len, size_t start,
                        int lowercase, char out[DNS_NAME_BUF], size_t *consumed)
@@ -126,7 +128,7 @@ static int decode_name(const uint8_t *msg, size_t msg_len, size_t start,
         uint8_t label_len;
 
         if (pos >= msg_len)
-            return 0; /* ran off the end of the buffer */
+            goto fail; /* ran off the end of the buffer */
 
         label_len = msg[pos];
 
@@ -142,13 +144,13 @@ static int decode_name(const uint8_t *msg, size_t msg_len, size_t start,
             }
 
             if (pos + 1 + label_len > msg_len)
-                return 0; /* label body runs past the buffer */
+                goto fail; /* label body runs past the buffer */
 
             /* Each label costs its length octet + its bytes toward the
              * RFC 1035 255-octet name cap. */
             name_octets += (size_t)label_len + 1;
             if (name_octets > DNS_MAX_NAME_OCTETS)
-                return 0;
+                goto fail;
 
             if (!first_label && out_len + 1 < DNS_NAME_BUF)
                 out[out_len++] = '.';
@@ -170,7 +172,7 @@ static int decode_name(const uint8_t *msg, size_t msg_len, size_t start,
             size_t target;
 
             if (pos + 2 > msg_len)
-                return 0; /* pointer's second byte is missing */
+                goto fail; /* pointer's second byte is missing */
 
             target = ((size_t)(label_len & 0x3f) << 8) | (size_t)msg[pos + 1];
 
@@ -183,18 +185,29 @@ static int decode_name(const uint8_t *msg, size_t msg_len, size_t start,
              * pointer itself. Rejects self- and forward-pointers outright;
              * the jump cap below catches any residual bounce. */
             if (target >= pos)
-                return 0;
+                goto fail;
 
             if (++jumps > DNS_MAX_POINTER_JUMPS)
-                return 0;
+                goto fail;
 
             pos = target;
             continue;
         }
 
         /* 0x40 / 0x80: reserved label types (RFC 6891 deprecated 0x41). */
-        return 0;
+        goto fail;
     }
+
+fail:
+    /* Malformation: keep the doc contract that `out` still holds the best
+     * partial presentation as a valid C string. Every label/dot write above is
+     * guarded by `out_len + 1 < DNS_NAME_BUF`, so out_len <= DNS_NAME_BUF-1
+     * here; clamp defensively regardless so the terminator write is always in
+     * bounds. `*consumed` retains whatever safe advance was already set. */
+    if (out_len >= DNS_NAME_BUF)
+        out_len = DNS_NAME_BUF - 1;
+    out[out_len] = '\0';
+    return 0;
 }
 
 /* ---- RDATA text decoders ------------------------------------------------- */
