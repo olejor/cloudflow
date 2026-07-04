@@ -3,7 +3,7 @@
  * top-level raw option wire walk. The decoded-option builder (option-by-
  * option semantic decode) lives in cf_dhcpv6_decode.c; shared helpers live
  * in cf_dhcpv6_util.c. See docs/dhcp-source.md for the
- * spec this implements, and import/network_dhcp_collector/src/main.c's
+ * spec this implements, and an earlier DHCP-collector prototype's
  * process_dhcpv6 for the TLV-walk shape this is lifted from (msg-type +
  * 24-bit xid, then a flat code/len/value option loop with memcpy
  * discipline) -- extended here with bounds-checked resync-on-malformed,

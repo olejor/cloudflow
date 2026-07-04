@@ -14,7 +14,7 @@
  * paths.
  *
  * Same conventions as tests/fuzz/dhcpv4_fuzz.c / README.md and
- * import/network_syslog_collector/tests/Fuzzing.md (read-only reference).
+ * a prior syslog-collector prototype's fuzzing harness (read-only reference).
  * Not wired into `make test` or the top-level SUBDIRS -- per the WP-07
  * spec, this only needs to exist and build; running it (under AFL or the
  * quick local sweep script) is a manual/local step, documented as

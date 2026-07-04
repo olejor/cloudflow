@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-/* Reentrant MAC/IP address formatting -- unlike the legacy helpers in
- * import/, these write into a caller-supplied buffer instead of a static
+/* Reentrant MAC/IP address formatting -- unlike the legacy prototype
+ * helpers, these write into a caller-supplied buffer instead of a static
  * one, so they are safe to call from multiple threads concurrently.
  */
 

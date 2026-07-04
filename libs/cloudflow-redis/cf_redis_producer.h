@@ -9,7 +9,7 @@
  * docs/dhcp-source.md (WP-09 section) for the full behavior spec
  * this implements, and docs/redis-streams.md for the entry format contract.
  *
- * Structure lifted from import/network_syslog_collector/src/redis.c (the
+ * Structure lifted from a prior syslog-collector prototype's redis producer (the
  * pipeline-accumulate-then-drain loop, reconnect rate-limiting, drop
  * accounting), adapted to a single thread (D4) and plain hiredis (D3)
  * instead of hiredis-cluster, with binary-safe payloads instead of JSON.

@@ -4,8 +4,8 @@
 named in `argv[1]`, or stdin if no argument is given) and calls
 `cf_decap_udp()` on it. Not wired into `make test` or the top-level
 `SUBDIRS` -- it only needs to build; running it under AFL is a manual local
-step. Same conventions as
-`import/network_syslog_collector/tests/Fuzzing.md`.
+step. Same conventions as a prior syslog-collector prototype's fuzzing
+harness.
 
 Build the harness (plain gcc, not the hardened toolchain):
 

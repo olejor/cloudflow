@@ -7,8 +7,8 @@
  * crashes, on any input, of any length"; the return code and populated
  * fields are not asserted here (that's what tests/unit/cf_decap_test.c is
  * for). See tests/fuzz/README.md for how to run this under AFL, and
- * import/network_syslog_collector/tests/Fuzzing.md /
- * import/network_syslog_collector/tests/filter_fuzz_test.c for the pattern
+ * a prior syslog-collector prototype's fuzzing harness and filter
+ * fuzz test for the pattern
  * this is adapted from (read-only references, not modified).
  *
  * Not wired into `make test` or the top-level SUBDIRS -- per the WP-05

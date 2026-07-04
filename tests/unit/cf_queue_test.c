@@ -1,9 +1,8 @@
 /* CUnit acceptance tests for the WP-04 cf_queue hardening. Standalone
  * binary (build/cf_queue_test), separate from cf_core_test, per the
  * tests/unit/Makefile "one binary per WP" pattern -- see that Makefile's
- * header comment. Pattern lifted from the legacy
- * import/network_syslog_collector/tests/queue_unit_test.c (read-only
- * reference, not modified).
+ * header comment. Pattern lifted from a prior syslog-collector
+ * prototype's queue unit test (read-only reference, not modified).
  *
  * Single-threaded tests cover the API contract: init/destroy, the
  * full/empty boundary conditions, payload integrity, and wrap-around across

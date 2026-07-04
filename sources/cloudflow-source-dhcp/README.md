@@ -216,6 +216,6 @@ non-first IPv4 fragment to confirm fragment rejection) was run against this
 implementation in a root container with `CAP_NET_RAW`; see the WP-08 PR
 description / task report for the observed results. A single-VLAN-tagged
 DHCPv4 frame and a single-VLAN-tagged non-DHCP frame are useful additions to
-step 4 above: they exercise the part of the filter the lifted
-`import/network_dhcp_collector` prototype filter got wrong (it read a fixed
+step 4 above: they exercise the part of the filter the earlier
+DHCP-collector prototype filter got wrong (it read a fixed
 byte offset that assumed no VLAN tag even in its own "VLAN-aware" branch).

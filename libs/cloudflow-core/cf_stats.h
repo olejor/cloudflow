@@ -4,8 +4,7 @@
 #include <stdatomic.h>
 
 /* Atomic counter primitives (D8 in docs/architecture.md), modeled on
- * the ATOMIC_* macro pattern in
- * import/network_syslog_collector/src/stats.h. Core only provides these
+ * the ATOMIC_* macro pattern in a prior syslog-collector prototype. Core only provides these
  * primitives; each app defines its own stats struct out of atomic_ulong (or
  * similar) fields and builds a structured log line out of them with
  * cf_log() once per reporting interval. */

@@ -26,7 +26,7 @@
  * config, installs signal handlers, runs the periodic stats loop on the main
  * thread, and shuts down in reverse pipeline order (reader first so the
  * queues drain), per docs/dhcp-source.md's WP-11 section. Lifecycle
- * modeled on import/network_syslog_collector/src/main.c. */
+ * modeled on a prior syslog-collector prototype. */
 
 #ifndef CF_SOURCE_DHCP_VERSION
 #define CF_SOURCE_DHCP_VERSION "0.1.0"

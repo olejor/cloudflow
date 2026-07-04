@@ -1,8 +1,8 @@
 #ifndef CF_SYNC_H
 #define CF_SYNC_H
 
-/* Process-wide shutdown coordination. Lifted from
- * import/network_syslog_collector/src/sync.c (stop-flag pattern), renamed
+/* Process-wide shutdown coordination. Lifted from a prior
+ * syslog-collector prototype's stop-flag pattern, renamed
  * to the cf_ prefix and extended with signal handler installation. */
 
 /* Notify stop from thread context. A non-zero code is sticky: the first
