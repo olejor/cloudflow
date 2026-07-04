@@ -88,4 +88,29 @@ void bpf_asm_ipv4_udp_ports_branch(bpf_asm_t *a, __u32 ip_base, __u16 port1, __u
 void bpf_asm_ipv6_udp_ports_branch(bpf_asm_t *a, __u32 ip_base, __u16 port1, __u16 port2,
                                     int accept_label, int drop_label);
 
+/* TCP header byte offsets, relative to the start of the TCP header: source
+ * port at +0, destination port at +2 (identical layout to the UDP header). */
+#define CF_BPF_TCP_SRC_PORT_OFF 0
+#define CF_BPF_TCP_DST_PORT_OFF 2
+
+/* TCP counterparts of the UDP branch primitives above. Same shape (IP protocol
+ * check + non-first-fragment reject + src/dst two-port check), but match IP
+ * protocol == TCP (6) and read the ports from the TCP header.
+ *
+ * KEY DIFFERENCE from the UDP branches: on a protocol/port MISMATCH (or a
+ * non-first fragment) these jump to `mismatch_label` rather than an implied
+ * drop. That lets a caller CHAIN transports for one IP version -- point the
+ * UDP branch's mismatch label at the TCP branch, and the TCP branch's mismatch
+ * label at the final drop, giving "try UDP:port, else try TCP:port, else drop"
+ * (the DNS udp/53 + tcp/53 filter). Passing the drop label as `mismatch_label`
+ * degenerates to the same "match or drop" behaviour as the UDP branches.
+ *
+ * The existing UDP branch functions already take their mismatch target as the
+ * final label argument (named `drop_label`), so no UDP variant is needed to
+ * chain into a TCP branch: pass the TCP branch's label as that argument. */
+void bpf_asm_ipv4_tcp_ports_branch(bpf_asm_t *a, __u32 ip_base, __u16 port1, __u16 port2,
+                                    int accept_label, int mismatch_label);
+void bpf_asm_ipv6_tcp_ports_branch(bpf_asm_t *a, __u32 ip_base, __u16 port1, __u16 port2,
+                                    int accept_label, int mismatch_label);
+
 #endif
