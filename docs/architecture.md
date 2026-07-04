@@ -108,10 +108,10 @@ transform and delivery client differ.
 | Sink | Destination | Purpose | Status |
 |---|---|---|---|
 | `cloudflow-sink-splunk` | Splunk HEC event index | full-fidelity forensic record; searchable JSON | v0.1, implemented |
-| `cloudflow-sink-splunk-metrics` | Splunk HEC metrics index | rates, latency distributions, counts for dashboards/alerting | designed — `docs/splunk-metrics.md` |
+| `cloudflow-sink-splunk-metrics` | Splunk HEC metrics index | rates, latency distributions, counts for dashboards/alerting | implemented — `docs/splunk-metrics.md` |
 | `cloudflow-sink-clickhouse` | ClickHouse | columnar/analytical navigation of the raw firehose | designed, future — `docs/clickhouse-sink.md` |
 
-The metrics and ClickHouse sinks are documented but not yet built; both are
+The ClickHouse sink is documented but not yet built; it is
 sequenced after the DNS source, since DNS RTT/rate data and its
 high-cardinality joins are what most justify a dedicated metrics store and a
 columnar analytics store.
@@ -208,7 +208,13 @@ cloudflow/
 │       └── README.md
 │
 ├── sinks/
-│   └── cloudflow-sink-splunk/
+│   ├── cloudflow-sink-splunk/
+│   │   ├── src/
+│   │   ├── config/
+│   │   ├── systemd/
+│   │   ├── tests/
+│   │   └── README.md
+│   └── cloudflow-sink-splunk-metrics/
 │       ├── src/
 │       ├── config/
 │       ├── systemd/

@@ -1,0 +1,1 @@
+{"fields": {"metric_name:dhcp.events_total": 1, "source_type": "dhcpv4", "cf_message_type": "DISCOVER", "cf_is_relayed": "false"}, "host": "dhcp-source-01.example.net", "index": "cloudflow_metrics", "source": "cloudflow:v1:wire:dhcpv4", "sourcetype": "cloudflow:metric", "time": 1730000000.123456789}

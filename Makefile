@@ -2,7 +2,7 @@
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
-SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis libs/cloudflow-capture libs/cloudflow-sink-core sources/cloudflow-source-dhcp sources/cloudflow-source-dns sinks/cloudflow-sink-splunk tests/unit
+SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis libs/cloudflow-capture libs/cloudflow-sink-core sources/cloudflow-source-dhcp sources/cloudflow-source-dns sinks/cloudflow-sink-splunk sinks/cloudflow-sink-splunk-metrics tests/unit
 
 proto:
 	./scripts/generate-protobuf.sh
@@ -20,6 +20,7 @@ test:
 	$(MAKE) -C sources/cloudflow-source-dhcp test
 	$(MAKE) -C sources/cloudflow-source-dns test
 	$(MAKE) -C sinks/cloudflow-sink-splunk test
+	$(MAKE) -C sinks/cloudflow-sink-splunk-metrics test
 	./scripts/run-integration-tests.sh
 
 # WP-04: rebuilds the cf_queue SPSC stress test with -fsanitize=thread
@@ -41,6 +42,7 @@ test-asan:
 	$(MAKE) -C sources/cloudflow-source-dhcp test-asan
 	$(MAKE) -C sources/cloudflow-source-dns test-asan
 	$(MAKE) -C sinks/cloudflow-sink-splunk test-asan
+	$(MAKE) -C sinks/cloudflow-sink-splunk-metrics test-asan
 
 bench:
 	./scripts/benchmark-xadd.sh

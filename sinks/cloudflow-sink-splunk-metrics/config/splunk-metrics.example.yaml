@@ -1,0 +1,41 @@
+service:
+  name: cloudflow-sink-splunk-metrics
+  consumer_name: splunk-metrics-01
+
+redis:
+  endpoints:
+    - redis01:6379
+    - redis02:6379
+    - redis03:6379
+  streams:
+    - cloudflow:v1:wire:dhcpv4
+    - cloudflow:v1:wire:dhcpv6
+    - cloudflow:v1:wire:dns
+  consumer_group: sink-splunk-metrics
+  read_count: 100
+  block_ms: 1000
+  deadletter_stream: cloudflow:v1:deadletter:sink-splunk-metrics
+
+splunk:
+  # Metric points POST to the metric HEC endpoint (not /event).
+  hec_url: https://splunk.example.com:8088
+  hec_path: /services/collector
+  hec_token_env: SPLUNK_HEC_TOKEN     # required; names an env var, never a literal token
+  index: ""                           # base event index unused by the metrics sink
+  metrics_index: cloudflow_metrics    # Splunk metrics index the metric points carry
+  # Allowlist of metric names that may be emitted (omit / empty => all).
+  enabled_metrics:
+    - dns.rtt_seconds
+    - dns.transactions_total
+    - dns.unanswered_total
+    - dns.unmatched_total
+    - dhcp.events_total
+  # Cardinality controls: which optional dimensions to include.
+  dimensions:
+    dns_server_ip: true               # cf_server_ip on DNS metrics (default: true)
+    dns_qtype: true                   # cf_qtype on DNS metrics (default: true)
+    dhcp_client_key: false            # per-MAC / client-id cf_client_key (default: false)
+  batch_size: 500
+  flush_interval_ms: 1000
+  request_timeout_ms: 5000
+  tls_verify: true
