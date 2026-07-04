@@ -12,10 +12,12 @@
 #include "cf_time.h"
 #include "cf_redis_producer.h"
 
+#include "cf_bpf.h"
+#include "cf_pcap_replay.h"
+#include "cf_rx_reader.h"
 #include "config.h"
+#include "dhcp_bpf.h"
 #include "formatter.h"
-#include "pcap_replay.h"
-#include "rx_reader.h"
 #include "source_stats.h"
 #include "stats.h"
 
@@ -210,7 +212,7 @@ int main(int argc, char *argv[])
         long n;
         int64_t deadline;
 
-        n = pcap_replay_file(replay_path, &q_pkt, &stats, cfg->queues_on_full);
+        n = pcap_replay_file(replay_path, &q_pkt, &stats.rx, cfg->queues_on_full);
         if (n < 0) {
             cf_log(CF_LOG_ERROR, "pcap replay failed", "path", replay_path, NULL);
             exit_code = 1;
@@ -243,17 +245,31 @@ int main(int argc, char *argv[])
         /* Fall through to reverse-order shutdown; exit 0 on the happy path. */
     } else {
         /* --- live capture path. --- */
-        rx_reader_config_t rcfg;
+        cf_rx_reader_config_t rcfg;
+        struct sock_filter dhcp_bpf[CF_BPF_ASM_MAX_INSNS];
+        int dhcp_bpf_len;
         int64_t next_report_ns;
+
+        /* Assemble the DHCP-specific cBPF filter (dhcp_bpf.c, built on the
+         * shared cf_bpf primitives) and hand it to the generic capture loop,
+         * which attaches it via SO_ATTACH_FILTER. */
+        dhcp_bpf_len = build_dhcp_bpf_filter(dhcp_bpf, CF_BPF_ASM_MAX_INSNS);
+        if (dhcp_bpf_len < 0) {
+            cf_log(CF_LOG_ERROR, "failed to assemble DHCP BPF filter", NULL);
+            exit_code = 1;
+            goto cleanup;
+        }
 
         memset(&rcfg, 0, sizeof(rcfg));
         rcfg.interface_name = cfg->capture_interface;
         rcfg.out = &q_pkt;
-        rcfg.stats = &stats;
+        rcfg.stats = &stats.rx;
         rcfg.on_full = cfg->queues_on_full;
+        rcfg.bpf = dhcp_bpf;
+        rcfg.bpf_len = (unsigned short)dhcp_bpf_len;
 
-        if (rx_reader_start(&rcfg) != 0) {
-            cf_log(CF_LOG_ERROR, "rx_reader_start failed", NULL);
+        if (cf_rx_reader_start(&rcfg) != 0) {
+            cf_log(CF_LOG_ERROR, "cf_rx_reader_start failed", NULL);
             exit_code = 1;
             goto cleanup;
         }
@@ -279,7 +295,7 @@ cleanup:
      * producer drain what is still queued (both stop() calls drain), then the
      * formatter, then the producer. */
     if (rx_started)
-        rx_reader_stop();
+        cf_rx_reader_stop();
     if (formatter_started)
         formatter_stop();
     if (redis_started)

@@ -1,13 +1,14 @@
-#ifndef CF_SOURCE_DHCP_QUEUE_POLICY_H
-#define CF_SOURCE_DHCP_QUEUE_POLICY_H
+#ifndef CF_CAPTURE_QUEUE_POLICY_H
+#define CF_CAPTURE_QUEUE_POLICY_H
 
-/* D9 backpressure policy (docs/architecture.md): every cf_queue in the
- * source pipeline has an explicit on_full policy loaded from config, and
- * every drop it causes increments a named counter. This header/",.c" pair
- * is the one shared implementation of that policy, used by both the
- * rx-reader -> q_pkt push (WP-08, this WP) and the formatter -> q_evt push
- * (WP-10, a later WP) -- hence living outside rx_reader.h even though this
- * WP is the first consumer. */
+/* D9 backpressure policy (docs/architecture.md): every cf_queue in a source
+ * pipeline has an explicit on_full policy loaded from config, and every drop
+ * it causes increments a named counter. This header/.c pair is the one shared
+ * implementation of that policy, reused by every capture-based source (the
+ * rx-reader -> q_pkt push and the formatter -> q_evt push in
+ * cloudflow-source-dhcp today, and the DNS source once it lands). Extracted
+ * verbatim from sources/cloudflow-source-dhcp/src/queue_policy.{c,h} into
+ * libs/cloudflow-capture so a second source can reuse it (synergy item A2). */
 
 #include <stdatomic.h>
 #include <stddef.h>

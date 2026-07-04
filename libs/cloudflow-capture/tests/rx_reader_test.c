@@ -1,14 +1,12 @@
-/* CUnit acceptance tests for WP-08 (pcap_replay + cf_queue_push_policy).
- * Standalone binary (sources/cloudflow-source-dhcp/build/rx_reader_test),
- * wired into this directory's own Makefile `test` target -- tests/unit/ is
- * owned by a parallel WP right now, per the WP-08 task instructions (same
- * pattern libs/cloudflow-redis uses for its own tests/).
+/* CUnit tests for the generic capture layer's offline paths:
+ * pcap_replay_file() + cf_queue_push_policy(). Moved verbatim (bar the
+ * cf_rx_stats_t stats split and the cf_-prefixed capture headers) from
+ * sources/cloudflow-source-dhcp/tests/rx_reader_test.c when the capture layer
+ * was extracted into libs/cloudflow-capture (synergy item A2).
  *
- * The rx-ring capture path itself needs CAP_NET_RAW and a real interface,
- * so it is not exercised here -- see the manual veth procedure in
- * README.md (and tests/rx_smoke_main.c, the harness that procedure runs).
- * Everything here is pure/offline: pcap_replay_file() and
- * cf_queue_push_policy() directly. */
+ * The rx-ring capture path itself needs CAP_NET_RAW and a real interface, so
+ * it is not exercised here -- see tests/rx_smoke_main.c, the manual harness.
+ * Everything here is pure/offline. */
 
 #include <CUnit/Basic.h>
 #include <CUnit/CUnit.h>
@@ -24,10 +22,9 @@
 #include "cf_stats.h"
 #include "cf_time.h"
 #include "cloudflow.h"
-#include "pcap_replay.h"
-#include "queue_policy.h"
-#include "rx_reader.h"
-#include "source_stats.h"
+#include "cf_pcap_replay.h"
+#include "cf_queue_policy.h"
+#include "cf_rx_stats.h"
 
 #define FIXTURE_PATH "../../tests/fixtures/dhcp/v4_discover.pcap"
 #define TMP_MULTI_PATH "build/tmp_multi_frame.pcap"
@@ -99,7 +96,7 @@ static uint32_t item_ts_sec(const cf_packet_item_t *item)
 static void test_replay_v4_discover_single_packet(void)
 {
     cf_queue_t q;
-    cf_source_stats_t stats;
+    cf_rx_stats_t stats;
     cf_packet_item_t item;
     FILE *fp;
     unsigned char raw[512];
@@ -178,7 +175,7 @@ static void test_replay_rejects_pcapng(void)
 static void test_replay_queue_full_drop_newest(void)
 {
     cf_queue_t q;
-    cf_source_stats_t stats;
+    cf_rx_stats_t stats;
     cf_packet_item_t item;
     const int n_records = 6;
     long built;
@@ -217,7 +214,7 @@ static void test_replay_queue_full_drop_newest(void)
 static void test_replay_queue_full_drop_oldest(void)
 {
     cf_queue_t q;
-    cf_source_stats_t stats;
+    cf_rx_stats_t stats;
     cf_packet_item_t item;
     const int n_records = 6;
     long built;
@@ -257,7 +254,7 @@ static void test_replay_queue_full_drop_oldest(void)
 static void test_replay_queue_full_block(void)
 {
     cf_queue_t q;
-    cf_source_stats_t stats;
+    cf_rx_stats_t stats;
     cf_packet_item_t item;
     /* Small count: with nobody draining, each drop after the first blocks
      * for the full bounded retry budget (~0.5s) before giving up. */
@@ -394,7 +391,7 @@ int main(void)
     if (CU_initialize_registry() != CUE_SUCCESS)
         return (int)CU_get_error();
 
-    suite = CU_add_suite("cloudflow-source-dhcp WP-08", NULL, NULL);
+    suite = CU_add_suite("cloudflow-capture pcap_replay + queue_policy", NULL, NULL);
     if (!suite) {
         CU_cleanup_registry();
         return (int)CU_get_error();

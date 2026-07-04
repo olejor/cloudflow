@@ -1,4 +1,4 @@
-#include "pcap_replay.h"
+#include "cf_pcap_replay.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -8,14 +8,12 @@
 #include "cf_log.h"
 #include "cf_stats.h"
 #include "cloudflow.h"
-#include "rx_reader.h" /* CF_PACKET_FLAG_TRUNCATED */
+#include "cf_rx_stats.h" /* CF_PACKET_FLAG_TRUNCATED */
 
 /* ------------------------------------------------------------------------
- * Classic pcap file structures. Lifted-and-adapted from
- * import/network_dhcp_collector/src/replay.c (cap_run_pcap): same magic
- * detection/byte-swap approach, extended with pcapng rejection, the
- * nanosecond-magic variants, and truncation/flag handling to match
- * cf_packet_item_t and rx_reader.c's behavior. */
+ * Classic pcap file structures: magic detection/byte-swap, pcapng
+ * rejection, the nanosecond-magic variants, and truncation/flag handling
+ * to match cf_packet_item_t and cf_rx_reader.c's behavior. */
 
 struct pcap_file_hdr {
     uint32_t magic;
@@ -38,7 +36,7 @@ struct pcap_rec_hdr {
 #define PCAP_MAGIC_USEC_BE 0xd4c3b2a1u
 #define PCAP_MAGIC_NSEC_LE 0xa1b23c4du /* libpcap's own nanosecond-resolution magic */
 #define PCAP_MAGIC_NSEC_BE 0x4d3cb2a1u
-#define PCAP_MAGIC_NSEC_ALT 0xa3b4c3d4u /* nanosecond variant per the WP-08 task description */
+#define PCAP_MAGIC_NSEC_ALT 0xa3b4c3d4u /* nanosecond variant */
 #define PCAPNG_MAGIC 0x0a0d0d0au
 
 #define DLT_EN10MB 1u
@@ -54,7 +52,7 @@ static uint32_t bswap32(uint32_t x)
     return (x >> 24) | ((x >> 8) & 0xff00u) | ((x << 8) & 0xff0000u) | (x << 24);
 }
 
-long pcap_replay_file(const char *path, cf_queue_t *out, cf_source_stats_t *stats,
+long pcap_replay_file(const char *path, cf_queue_t *out, cf_rx_stats_t *stats,
                        cf_queue_full_policy_t on_full)
 {
     FILE *fp;

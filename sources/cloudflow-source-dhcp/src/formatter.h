@@ -16,7 +16,7 @@
 
 #include "cf_queue.h"
 #include "cloudflow.h"
-#include "queue_policy.h"
+#include "cf_queue_policy.h"
 #include "source_stats.h"
 
 /* Returned by cf_format_packet() for a packet that decap/classification

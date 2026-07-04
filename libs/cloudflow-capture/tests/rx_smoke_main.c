@@ -1,17 +1,15 @@
-/* rx-smoke: manual live-capture harness for the WP-08 acceptance criterion
- * "run with CAP_NET_RAW on a veth pair, inject DHCP + non-DHCP traffic with
- * scapy, verify only DHCP arrives and kernel stats report the filtering."
- * Not a CUnit test (needs a real interface + CAP_NET_RAW/root, unavailable
- * in an ordinary build/CI environment) -- see README.md's "Manual veth
- * capture test" section for the exact procedure this binary is part of.
+/* rx-smoke: manual live-capture harness for the capture layer (cf_rx_reader).
+ * Not a CUnit test (needs a real interface + CAP_NET_RAW/root, unavailable in
+ * an ordinary build/CI environment). Moved here from the DHCP source when the
+ * capture layer was extracted into libs/cloudflow-capture (synergy item A2).
  *
  * Usage: rx-smoke <interface> <seconds>
  *
- * Runs rx_reader against <interface> for <seconds>, then prints every
- * queued cf_packet_item_t (so the caller can confirm only DHCP frames were
- * queued) and the final stats snapshot (packets_received_total,
- * packets_dropped_total, rx_queue_drop_total, packets_truncated_total,
- * rx_queue_depth), then exits 0. */
+ * Runs cf_rx_reader against <interface> for <seconds> with NO BPF filter
+ * attached (captures every frame -- a source's own filter is attached by the
+ * source itself), then prints every queued cf_packet_item_t and the final
+ * rx stats snapshot (packets_received_total, packets_dropped_total,
+ * rx_queue_drop_total, packets_truncated_total, rx_queue_depth), then exits 0. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,16 +20,16 @@
 #include "cf_stats.h"
 #include "cf_time.h"
 #include "cloudflow.h"
-#include "rx_reader.h"
-#include "source_stats.h"
+#include "cf_rx_reader.h"
+#include "cf_rx_stats.h"
 
 #define SMOKE_QUEUE_CAPACITY 256
 
 int main(int argc, char **argv)
 {
     cf_queue_t q;
-    cf_source_stats_t stats;
-    rx_reader_config_t cfg;
+    cf_rx_stats_t stats;
+    cf_rx_reader_config_t cfg;
     int seconds;
     cf_packet_item_t item;
     int queued = 0;
@@ -54,6 +52,7 @@ int main(int argc, char **argv)
     }
 
     memset(&stats, 0, sizeof(stats));
+    memset(&cfg, 0, sizeof(cfg));
 
     cfg.interface_name = argv[1];
     cfg.block_size = 0;  /* defaults */
@@ -62,9 +61,11 @@ int main(int argc, char **argv)
     cfg.out = &q;
     cfg.stats = &stats;
     cfg.on_full = CF_ONFULL_DROP_NEWEST;
+    cfg.bpf = NULL;      /* no filter: capture everything */
+    cfg.bpf_len = 0;
 
-    if (rx_reader_start(&cfg) != 0) {
-        fprintf(stderr, "rx_reader_start failed (need CAP_NET_RAW / root?)\n");
+    if (cf_rx_reader_start(&cfg) != 0) {
+        fprintf(stderr, "cf_rx_reader_start failed (need CAP_NET_RAW / root?)\n");
         cf_queue_destroy(&q);
         return 1;
     }
@@ -72,7 +73,7 @@ int main(int argc, char **argv)
     printf("rx-smoke: capturing on %s for %d s...\n", argv[1], seconds);
     cf_sleep_ns((int64_t)seconds * 1000000000LL);
 
-    rx_reader_stop();
+    cf_rx_reader_stop();
 
     while (cf_queue_pop(&q, &item) == 0) {
         queued++;

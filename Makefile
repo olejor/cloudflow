@@ -2,7 +2,7 @@
 
 # Library/app directories with their own Makefile (each including
 # mk/toolchain.mk). Extended by later WPs as libs/apps land.
-SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis sources/cloudflow-source-dhcp sources/cloudflow-source-dns sinks/cloudflow-sink-splunk tests/unit
+SUBDIRS := libs/cloudflow-core libs/cloudflow-codec libs/cloudflow-packet libs/cloudflow-redis libs/cloudflow-capture sources/cloudflow-source-dhcp sources/cloudflow-source-dns sinks/cloudflow-sink-splunk tests/unit
 
 proto:
 	./scripts/generate-protobuf.sh
@@ -15,6 +15,7 @@ proto:
 test:
 	$(MAKE) -C tests/unit test-unit
 	$(MAKE) -C libs/cloudflow-redis test
+	$(MAKE) -C libs/cloudflow-capture test
 	$(MAKE) -C sources/cloudflow-source-dhcp test
 	$(MAKE) -C sources/cloudflow-source-dns test
 	$(MAKE) -C sinks/cloudflow-sink-splunk test
@@ -34,6 +35,7 @@ test-tsan:
 # instrumented, not part of the default CI-clean-build loop.
 test-asan:
 	$(MAKE) -C tests/unit test-asan
+	$(MAKE) -C libs/cloudflow-capture test-asan
 	$(MAKE) -C sources/cloudflow-source-dhcp test-asan
 	$(MAKE) -C sources/cloudflow-source-dns test-asan
 	$(MAKE) -C sinks/cloudflow-sink-splunk test-asan

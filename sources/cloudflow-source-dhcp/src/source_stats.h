@@ -1,14 +1,16 @@
 #ifndef CF_SOURCE_DHCP_SOURCE_STATS_H
 #define CF_SOURCE_DHCP_SOURCE_STATS_H
 
-/* cf_source_stats_t: the atomic counter/gauge struct shared by the whole
- * cloudflow-source-dhcp pipeline (D8, docs/architecture.md). WP-11
- * owns allocating/embedding this struct and emitting the periodic
- * structured stats log line from it; WP-08 (this WP) and WP-10 each only
- * touch their own fields. It is defined here, under WP-08, because
- * rx_reader.h/pcap_replay.h need the type -- WP-11's src/stats.h is
- * expected to just `#include` this header rather than redefine the type
- * (see sources/cloudflow-source-dhcp/README.md).
+/* cf_source_stats_t: the DHCP source's application counter/gauge struct (D8,
+ * docs/architecture.md), shared by the whole cloudflow-source-dhcp pipeline.
+ *
+ * The generic rx-level counters (packets_received/dropped/truncated_total,
+ * rx_queue_drop_total, rx_queue_depth) now live in libs/cloudflow-capture's
+ * cf_rx_stats_t, embedded here as the `rx` member -- the shared rx-reader ring
+ * loop (cf_rx_reader) and the pcap-replay reader (cf_pcap_replay) maintain
+ * rx.* on their own; this struct adds the DHCP event-formatter's own counters
+ * alongside it. WP-11 owns allocating/embedding this struct and emitting the
+ * periodic stats log line.
  *
  * Every field is atomic_ulong so any thread can update its own fields with
  * the CF_ATOMIC_* macros (libs/cloudflow-core/cf_stats.h) without locking;
@@ -21,32 +23,15 @@
 
 #include <stdatomic.h>
 
+#include "cf_rx_stats.h"
+
 typedef struct {
-    /* --- rx-reader / pcap-replay (WP-08) ---------------------------- */
+    /* --- rx-reader / pcap-replay (generic, libs/cloudflow-capture) -----
+     * packets_received_total, packets_dropped_total, rx_queue_drop_total,
+     * rx_queue_depth, packets_truncated_total. */
+    cf_rx_stats_t rx;
 
-    /* Every frame observed (ring capture) or read (pcap replay), whether
-     * or not it was successfully queued. */
-    atomic_ulong packets_received_total;
-
-    /* Kernel-side drops, sampled from getsockopt(PACKET_STATISTICS) each
-     * epoll timeout tick. Always 0 for pcap replay (no kernel ring). */
-    atomic_ulong packets_dropped_total;
-
-    /* Our own on_full drops pushing into the rx -> formatter queue
-     * (q_pkt), per D9. */
-    atomic_ulong rx_queue_drop_total;
-
-    /* Gauge: q_pkt depth, sampled at the same time as packets_dropped_total. */
-    atomic_ulong rx_queue_depth;
-
-    /* Frames whose captured bytes exceeded CLOUDFLOW_PACKET_MAX_SIZE and
-     * were copied truncated (CF_PACKET_FLAG_TRUNCATED set). */
-    atomic_ulong packets_truncated_total;
-
-    /* --- event-formatter (WP-10) ------------------------------------
-     * Defined here now, per the WP-08 task, so this struct is already
-     * complete when WP-10 lands -- rx-reader/pcap-replay never touch these
-     * fields. */
+    /* --- event-formatter (WP-10) ------------------------------------ */
 
     /* Total events successfully built and pushed to q_evt, across both
      * protocols; the two fields below are the per-protocol breakdown. */
