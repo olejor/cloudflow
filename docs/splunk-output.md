@@ -103,8 +103,8 @@ Rules — this is the contract:
 - `host` = `source_host`; `source` = `stream_name` (falling back to the
   entry's stream); `index` from config, omitted if empty.
 - `sourcetype` from `splunk.sourcetypes` keyed by `source_type`; unknown
-  types fall back to `cloudflow:<source_type>`. The current mapping covers
-  `cloudflow:dhcpv4` and `cloudflow:dhcpv6`.
+  types fall back to `cloudflow:<source_type>`. The mapping covers
+  `cloudflow:dhcpv4`, `cloudflow:dhcpv6`, and `cloudflow:dns`.
 - `event` = protobuf JSON of the whole `CloudFlowEvent` with
   `preserve_proto_field_name` semantics — field names match the `.proto`
   exactly, `bytes` render as base64, enums as their names, 64-bit ints as
@@ -113,9 +113,9 @@ Rules — this is the contract:
   `MessageToDict(preserving_proto_field_name=True)`; the C transform
   (yyjson) reproduces them, verified structurally against golden files.
 - The set oneof payload appears under its field name (`dhcpv4_packet`,
-  `dhcpv6_packet`, and — once the DNS source lands — `dns_transaction`),
-  keeping Splunk search paths stable, e.g.
-  `sourcetype=cloudflow:dhcpv4 event.dhcpv4_packet.decoded.message_type_name=ACK`.
+  `dhcpv6_packet`, `dns_transaction`), keeping Splunk search paths stable, e.g.
+  `sourcetype=cloudflow:dhcpv4 event.dhcpv4_packet.decoded.message_type_name=ACK`
+  or `sourcetype=cloudflow:dns event.dns_transaction.query.questions{}.qname=www.example.com`.
 - Large raw payload bytes (`raw_dhcp_payload`) are stripped by default
   (`splunk.include_raw_payload: false`) — base64-opaque in Splunk, and the
   wire truth stays replayable from Redis.

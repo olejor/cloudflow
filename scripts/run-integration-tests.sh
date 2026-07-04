@@ -26,15 +26,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INTEGRATION_DIR="$REPO_ROOT/tests/integration"
 FIXTURES_DIR="$REPO_ROOT/tests/fixtures/dhcp"
+DNS_FIXTURES_DIR="$REPO_ROOT/tests/fixtures/dns"
 MANIFEST="$INTEGRATION_DIR/expected_counts.tsv"
 REDIS_PROBE="$INTEGRATION_DIR/redis_probe.py"
 CHECK_HEC_LINES="$INTEGRATION_DIR/check_hec_lines.py"
+CHECK_DNS_HEC="$INTEGRATION_DIR/check_dns_hec.py"
 
 SOURCE_BIN="$REPO_ROOT/sources/cloudflow-source-dhcp/build/cloudflow-source-dhcp"
+DNS_SOURCE_BIN="$REPO_ROOT/sources/cloudflow-source-dns/build/cloudflow-source-dns"
 SINK_BIN="$REPO_ROOT/sinks/cloudflow-sink-splunk/build/cloudflow-sink-splunk"
 
 STREAM_V4="cloudflow:v1:wire:dhcpv4"
 STREAM_V6="cloudflow:v1:wire:dhcpv6"
+STREAM_DNS="cloudflow:v1:wire:dns"
 DEADLETTER_STREAM="cloudflow:v1:deadletter:sink-splunk"
 CONSUMER_GROUP="sink-splunk"
 
@@ -72,20 +76,21 @@ if [[ -z "$PY" ]]; then
 fi
 
 binaries_present() {
-    [[ -x "$SOURCE_BIN" && -x "$SINK_BIN" ]]
+    [[ -x "$SOURCE_BIN" && -x "$DNS_SOURCE_BIN" && -x "$SINK_BIN" ]]
 }
 
 if ! binaries_present; then
-    log "binaries not found ($SOURCE_BIN, $SINK_BIN); running 'make build'..."
+    log "binaries not found ($SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN); running 'make build'..."
     if ! (cd "$REPO_ROOT" && make build); then
         fail "'make build' failed"
     fi
 fi
-binaries_present || fail "required binaries still missing after 'make build': $SOURCE_BIN and/or $SINK_BIN"
+binaries_present || fail "required binaries still missing after 'make build': one of $SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN"
 
 [[ -f "$MANIFEST" ]] || fail "missing manifest $MANIFEST"
 [[ -f "$REDIS_PROBE" ]] || fail "missing helper $REDIS_PROBE"
 [[ -f "$CHECK_HEC_LINES" ]] || fail "missing helper $CHECK_HEC_LINES"
+[[ -f "$CHECK_DNS_HEC" ]] || fail "missing helper $CHECK_DNS_HEC"
 
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/cloudflow-itest.XXXXXX")"
 log "workdir: $WORKDIR"
@@ -127,7 +132,7 @@ probe() { "$PY" "$REDIS_PROBE" --host "$REDIS_HOST" --port "$REDIS_PORT" "$@"; }
 
 # ---- 2. flush the CloudFlow streams --------------------------------------
 log "flushing CloudFlow streams"
-probe del "$STREAM_V4" "$STREAM_V6" "$DEADLETTER_STREAM" >/dev/null
+probe del "$STREAM_V4" "$STREAM_V6" "$STREAM_DNS" "$DEADLETTER_STREAM" >/dev/null
 
 # ---- 3. run the source --replay over every fixture pcap ------------------
 # Fixed source_host/capture_interface (independent of the machine running
@@ -271,5 +276,130 @@ for stream in "$STREAM_V4" "$STREAM_V6"; do
     [[ "$pending" == "0" ]] || fail "$stream group $CONSUMER_GROUP has $pending pending entries after the poison run"
 done
 
+# ---- 8. DNS leg (M-DNS1): source-dns --replay -> wire:dns -> sink --------
+# End-to-end DNS: replay the committed q_a query+response pcap PAIR through
+# cloudflow-source-dns so the correlation stage matches them into exactly one
+# dns.transaction.observed on cloudflow:v1:wire:dns, then run the sink over
+# that stream and assert the canonical cloudflow:dns HEC event.
+#
+# The source's --replay flag takes ONE pcap and each invocation is an
+# independent process with its own pending-query correlation table, so the
+# query and its response MUST arrive in the same run to correlate. Both
+# fixtures are classic pcaps with an identical 24-byte global header, so we
+# concatenate them (query records first, then the response's records after its
+# global header) into a single replay input.
+log "DNS leg: correlating the q_a query+response pair on $STREAM_DNS"
+DNS_QUERY_PCAP="$DNS_FIXTURES_DIR/q_a_query.pcap"
+DNS_RESPONSE_PCAP="$DNS_FIXTURES_DIR/q_a_response.pcap"
+[[ -f "$DNS_QUERY_PCAP" && -f "$DNS_RESPONSE_PCAP" ]] || \
+    fail "missing DNS fixture pair under $DNS_FIXTURES_DIR"
+
+DNS_PAIR_PCAP="$WORKDIR/q_a_pair.pcap"
+"$PY" - "$DNS_QUERY_PCAP" "$DNS_RESPONSE_PCAP" "$DNS_PAIR_PCAP" <<'PY'
+import sys
+q = open(sys.argv[1], "rb").read()
+r = open(sys.argv[2], "rb").read()
+if q[:24] != r[:24]:
+    sys.exit("DNS fixture pcaps have differing global headers; cannot concatenate")
+open(sys.argv[3], "wb").write(q + r[24:])  # keep one global header, both records
+PY
+
+probe del "$STREAM_DNS" >/dev/null
+dns_dl_before="$(probe xlen "$DEADLETTER_STREAM")"
+
+# local_service_addresses lists the DNS service IP the fixtures target (the
+# 192.0.2.53 server owns port 53), so the transaction classifies CLIENT_FACING.
+DNS_SOURCE_CFG="$WORKDIR/dns-source.itest.yaml"
+cat >"$DNS_SOURCE_CFG" <<EOF
+service:
+  name: cloudflow-source-dns
+  source_host: itest-dns-source-01
+
+capture:
+  interface: itest0
+  method: rxring
+  snaplen: 1500
+
+queues:
+  rx_to_stage_capacity: 65536
+  stage_to_redis_capacity: 65536
+  on_full: drop_newest
+
+redis:
+  endpoints:
+    - ${REDIS_HOST}:${REDIS_PORT}
+  stream_dns: ${STREAM_DNS}
+  maxlen_approx: 1000000
+  xadd_batch_size: 100
+  xadd_flush_interval_ms: 10
+
+dns:
+  local_service_addresses:
+    - 192.0.2.53
+  emit_policy: all
+EOF
+
+log "replaying the concatenated DNS pcap pair through $DNS_SOURCE_BIN"
+if ! "$DNS_SOURCE_BIN" -c "$DNS_SOURCE_CFG" --replay "$DNS_PAIR_PCAP" \
+        >"$WORKDIR/dns-replay.log" 2>&1; then
+    cat "$WORKDIR/dns-replay.log" >&2
+    fail "cloudflow-source-dns --replay failed for the DNS pair"
+fi
+
+dns_xlen="$(probe xlen "$STREAM_DNS")"
+log "XLEN $STREAM_DNS = $dns_xlen (expected 1)"
+[[ "$dns_xlen" == "1" ]] || fail "expected exactly 1 correlated DNS transaction on $STREAM_DNS, got $dns_xlen"
+
+DNS_SINK_CFG="$WORKDIR/splunk-sink-dns.itest.yaml"
+cat >"$DNS_SINK_CFG" <<EOF
+service:
+  name: cloudflow-sink-splunk
+  consumer_name: itest-splunk-dns-01
+
+redis:
+  endpoints:
+    - ${REDIS_HOST}:${REDIS_PORT}
+  streams:
+    - ${STREAM_DNS}
+  consumer_group: ${CONSUMER_GROUP}
+  read_count: 200
+  block_ms: 200
+
+splunk:
+  hec_url: http://127.0.0.1:9/services/collector/event
+  hec_token_env: CF_ITEST_HEC_TOKEN
+  index: ""
+  sourcetypes:
+    dns: cloudflow:dns
+  batch_size: 500
+  flush_interval_ms: 200
+  request_timeout_ms: 2000
+  tls_verify: true
+  include_raw_payload: false
+EOF
+
+DNS_HEC_OUT="$WORKDIR/dns_hec_lines.jsonl"
+log "running sink --once --stdout over $STREAM_DNS"
+if ! "$SINK_BIN" -c "$DNS_SINK_CFG" --once --stdout \
+        >"$DNS_HEC_OUT" 2>"$WORKDIR/dns-sink.log"; then
+    cat "$WORKDIR/dns-sink.log" >&2
+    fail "sink --once --stdout failed on the DNS stream"
+fi
+
+log "emitted DNS HEC event:"
+cat "$DNS_HEC_OUT"
+if ! "$PY" "$CHECK_DNS_HEC" "$DNS_HEC_OUT" --count 1; then
+    fail "DNS HEC line validation failed (see above)"
+fi
+
+dns_pending="$(probe pending "$STREAM_DNS" "$CONSUMER_GROUP")"
+log "pending($STREAM_DNS, $CONSUMER_GROUP) = $dns_pending"
+[[ "$dns_pending" == "0" ]] || fail "$STREAM_DNS group $CONSUMER_GROUP has $dns_pending pending entries, expected 0"
+
+dns_dl_after="$(probe xlen "$DEADLETTER_STREAM")"
+log "dead-letter delta over DNS leg = $((dns_dl_after - dns_dl_before)) (expected 0)"
+[[ "$dns_dl_after" == "$dns_dl_before" ]] || fail "DNS leg produced dead-letter entries (before=$dns_dl_before after=$dns_dl_after)"
+
 log "PASS: ${#PCAPS[@]} fixtures replayed, XLENs matched, $total_expected HEC lines validated," \
-    "0 pending, poison entry dead-lettered and acked."
+    "0 pending, poison entry dead-lettered and acked;" \
+    "DNS pair correlated into 1 cloudflow:dns event on $STREAM_DNS, 0 pending."

@@ -197,7 +197,7 @@ A sink may `XACK` only after successful downstream delivery.
 
 The Splunk sink should:
 
-- consume from `cloudflow:v1:wire:dhcpv4` and `cloudflow:v1:wire:dhcpv6`,
+- consume from `cloudflow:v1:wire:dhcpv4`, `cloudflow:v1:wire:dhcpv6`, and `cloudflow:v1:wire:dns`,
 - decode protobuf events,
 - convert them to JSON,
 - send them to Splunk HEC,
@@ -210,6 +210,7 @@ Suggested sourcetypes:
 ```text
 cloudflow:dhcpv4
 cloudflow:dhcpv6
+cloudflow:dns
 ```
 
 Malformed events should go to a dead-letter stream or be logged with enough information to debug safely. Do not lose malformed events silently.
