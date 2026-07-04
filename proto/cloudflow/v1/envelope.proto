@@ -4,6 +4,7 @@ package cloudflow.v1;
 
 import "cloudflow/v1/common.proto";
 import "cloudflow/v1/dhcp.proto";
+import "cloudflow/v1/dns.proto";
 
 // CloudFlowEvent is the Redis payload wrapper. Redis stream entries should also
 // carry lightweight fields such as encoding, schema, version, and event_type for
@@ -15,5 +16,6 @@ message CloudFlowEvent {
     DhcpV4PacketEvent dhcpv4_packet = 20;
     DhcpV6PacketEvent dhcpv6_packet = 21;
     DhcpV4LeaseEvent dhcpv4_lease = 22;
+    DnsTransactionEvent dns_transaction = 23;
   }
 }

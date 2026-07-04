@@ -16,6 +16,7 @@ PROTOBUF_C__BEGIN_DECLS
 
 #include "cloudflow/v1/common.pb-c.h"
 #include "cloudflow/v1/dhcp.pb-c.h"
+#include "cloudflow/v1/dns.pb-c.h"
 
 typedef struct Cloudflow__V1__CloudFlowEvent Cloudflow__V1__CloudFlowEvent;
 
@@ -29,7 +30,8 @@ typedef enum {
   CLOUDFLOW__V1__CLOUD_FLOW_EVENT__PAYLOAD__NOT_SET = 0,
   CLOUDFLOW__V1__CLOUD_FLOW_EVENT__PAYLOAD_DHCPV4_PACKET = 20,
   CLOUDFLOW__V1__CLOUD_FLOW_EVENT__PAYLOAD_DHCPV6_PACKET = 21,
-  CLOUDFLOW__V1__CLOUD_FLOW_EVENT__PAYLOAD_DHCPV4_LEASE = 22
+  CLOUDFLOW__V1__CLOUD_FLOW_EVENT__PAYLOAD_DHCPV4_LEASE = 22,
+  CLOUDFLOW__V1__CLOUD_FLOW_EVENT__PAYLOAD_DNS_TRANSACTION = 23
     PROTOBUF_C__FORCE_ENUM_TO_BE_INT_SIZE(CLOUDFLOW__V1__CLOUD_FLOW_EVENT__PAYLOAD__CASE)
 } Cloudflow__V1__CloudFlowEvent__PayloadCase;
 
@@ -47,6 +49,7 @@ struct  Cloudflow__V1__CloudFlowEvent
     Cloudflow__V1__DhcpV4PacketEvent *dhcpv4_packet;
     Cloudflow__V1__DhcpV6PacketEvent *dhcpv6_packet;
     Cloudflow__V1__DhcpV4LeaseEvent *dhcpv4_lease;
+    Cloudflow__V1__DnsTransactionEvent *dns_transaction;
   };
 };
 #define CLOUDFLOW__V1__CLOUD_FLOW_EVENT__INIT \

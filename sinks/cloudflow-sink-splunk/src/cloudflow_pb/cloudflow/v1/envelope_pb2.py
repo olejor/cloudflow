@@ -13,15 +13,16 @@ _sym_db = _symbol_database.Default()
 
 from cloudflow.v1 import common_pb2 as cloudflow_dot_v1_dot_common__pb2
 from cloudflow.v1 import dhcp_pb2 as cloudflow_dot_v1_dot_dhcp__pb2
+from cloudflow.v1 import dns_pb2 as cloudflow_dot_v1_dot_dns__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x63loudflow/v1/envelope.proto\x12\x0c\x63loudflow.v1\x1a\x19\x63loudflow/v1/common.proto\x1a\x17\x63loudflow/v1/dhcp.proto\"\xf6\x01\n\x0e\x43loudFlowEvent\x12-\n\x08\x65nvelope\x18\x01 \x01(\x0b\x32\x1b.cloudflow.v1.EventEnvelope\x12\x38\n\rdhcpv4_packet\x18\x14 \x01(\x0b\x32\x1f.cloudflow.v1.DhcpV4PacketEventH\x00\x12\x38\n\rdhcpv6_packet\x18\x15 \x01(\x0b\x32\x1f.cloudflow.v1.DhcpV6PacketEventH\x00\x12\x36\n\x0c\x64hcpv4_lease\x18\x16 \x01(\x0b\x32\x1e.cloudflow.v1.DhcpV4LeaseEventH\x00\x42\t\n\x07payloadb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x63loudflow/v1/envelope.proto\x12\x0c\x63loudflow.v1\x1a\x19\x63loudflow/v1/common.proto\x1a\x17\x63loudflow/v1/dhcp.proto\x1a\x16\x63loudflow/v1/dns.proto\"\xb4\x02\n\x0e\x43loudFlowEvent\x12-\n\x08\x65nvelope\x18\x01 \x01(\x0b\x32\x1b.cloudflow.v1.EventEnvelope\x12\x38\n\rdhcpv4_packet\x18\x14 \x01(\x0b\x32\x1f.cloudflow.v1.DhcpV4PacketEventH\x00\x12\x38\n\rdhcpv6_packet\x18\x15 \x01(\x0b\x32\x1f.cloudflow.v1.DhcpV6PacketEventH\x00\x12\x36\n\x0c\x64hcpv4_lease\x18\x16 \x01(\x0b\x32\x1e.cloudflow.v1.DhcpV4LeaseEventH\x00\x12<\n\x0f\x64ns_transaction\x18\x17 \x01(\x0b\x32!.cloudflow.v1.DnsTransactionEventH\x00\x42\t\n\x07payloadb\x06proto3')
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'cloudflow.v1.envelope_pb2', globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
 
   DESCRIPTOR._options = None
-  _CLOUDFLOWEVENT._serialized_start=98
-  _CLOUDFLOWEVENT._serialized_end=344
+  _CLOUDFLOWEVENT._serialized_start=122
+  _CLOUDFLOWEVENT._serialized_end=430
 # @@protoc_insertion_point(module_scope)
