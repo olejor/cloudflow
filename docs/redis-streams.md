@@ -71,7 +71,7 @@ table in `docs/architecture.md`):
 
 ```text
 sink-splunk            cloudflow-sink-splunk (event index) — implemented
-sink-splunk-metrics    cloudflow-sink-splunk-metrics (metrics index) — designed
+sink-splunk-metrics    cloudflow-sink-splunk-metrics (metrics index) — implemented
 sink-clickhouse        cloudflow-sink-clickhouse (columnar analytics) — designed
 ```
 

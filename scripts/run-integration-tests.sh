@@ -35,12 +35,15 @@ CHECK_DNS_HEC="$INTEGRATION_DIR/check_dns_hec.py"
 SOURCE_BIN="$REPO_ROOT/sources/cloudflow-source-dhcp/build/cloudflow-source-dhcp"
 DNS_SOURCE_BIN="$REPO_ROOT/sources/cloudflow-source-dns/build/cloudflow-source-dns"
 SINK_BIN="$REPO_ROOT/sinks/cloudflow-sink-splunk/build/cloudflow-sink-splunk"
+SINK_METRICS_BIN="$REPO_ROOT/sinks/cloudflow-sink-splunk-metrics/build/cloudflow-sink-splunk-metrics"
 
 STREAM_V4="cloudflow:v1:wire:dhcpv4"
 STREAM_V6="cloudflow:v1:wire:dhcpv6"
 STREAM_DNS="cloudflow:v1:wire:dns"
 DEADLETTER_STREAM="cloudflow:v1:deadletter:sink-splunk"
 CONSUMER_GROUP="sink-splunk"
+METRICS_DEADLETTER_STREAM="cloudflow:v1:deadletter:sink-splunk-metrics"
+METRICS_GROUP="sink-splunk-metrics"
 
 log() { echo "[integration] $*"; }
 fail() { echo "[integration] FAIL: $*" >&2; exit 1; }
@@ -76,16 +79,16 @@ if [[ -z "$PY" ]]; then
 fi
 
 binaries_present() {
-    [[ -x "$SOURCE_BIN" && -x "$DNS_SOURCE_BIN" && -x "$SINK_BIN" ]]
+    [[ -x "$SOURCE_BIN" && -x "$DNS_SOURCE_BIN" && -x "$SINK_BIN" && -x "$SINK_METRICS_BIN" ]]
 }
 
 if ! binaries_present; then
-    log "binaries not found ($SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN); running 'make build'..."
+    log "binaries not found ($SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN, $SINK_METRICS_BIN); running 'make build'..."
     if ! (cd "$REPO_ROOT" && make build); then
         fail "'make build' failed"
     fi
 fi
-binaries_present || fail "required binaries still missing after 'make build': one of $SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN"
+binaries_present || fail "required binaries still missing after 'make build': one of $SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN, $SINK_METRICS_BIN"
 
 [[ -f "$MANIFEST" ]] || fail "missing manifest $MANIFEST"
 [[ -f "$REDIS_PROBE" ]] || fail "missing helper $REDIS_PROBE"
@@ -132,7 +135,8 @@ probe() { "$PY" "$REDIS_PROBE" --host "$REDIS_HOST" --port "$REDIS_PORT" "$@"; }
 
 # ---- 2. flush the CloudFlow streams --------------------------------------
 log "flushing CloudFlow streams"
-probe del "$STREAM_V4" "$STREAM_V6" "$STREAM_DNS" "$DEADLETTER_STREAM" >/dev/null
+probe del "$STREAM_V4" "$STREAM_V6" "$STREAM_DNS" "$DEADLETTER_STREAM" \
+    "$METRICS_DEADLETTER_STREAM" >/dev/null
 
 # ---- 3. run the source --replay over every fixture pcap ------------------
 # Fixed source_host/capture_interface (independent of the machine running
@@ -400,6 +404,105 @@ dns_dl_after="$(probe xlen "$DEADLETTER_STREAM")"
 log "dead-letter delta over DNS leg = $((dns_dl_after - dns_dl_before)) (expected 0)"
 [[ "$dns_dl_after" == "$dns_dl_before" ]] || fail "DNS leg produced dead-letter entries (before=$dns_dl_before after=$dns_dl_after)"
 
+# ---- 9. Splunk metrics leg (WP-M02): sink-splunk-metrics over the same -----
+# streams. The metrics sink is a SECOND consumer group (sink-splunk-metrics) on
+# the already-replayed wire streams, so it reads them independently of the
+# event sink's sink-splunk group. Run it --once --stdout and assert the DNS
+# transaction produced a metric point (dns.transactions_total / dns.rtt_seconds)
+# carrying `metric_name:` plus the expected dimensions, with 0 pending after ack.
+log "metrics leg: consuming with the $METRICS_GROUP group over $STREAM_DNS"
+metrics_dl_before="$(probe xlen "$METRICS_DEADLETTER_STREAM")"
+
+METRICS_SINK_CFG="$WORKDIR/splunk-metrics-sink.itest.yaml"
+cat >"$METRICS_SINK_CFG" <<EOF
+service:
+  name: cloudflow-sink-splunk-metrics
+  consumer_name: itest-splunk-metrics-01
+
+redis:
+  endpoints:
+    - ${REDIS_HOST}:${REDIS_PORT}
+  streams:
+    - ${STREAM_DNS}
+  consumer_group: ${METRICS_GROUP}
+  read_count: 200
+  block_ms: 200
+  deadletter_stream: ${METRICS_DEADLETTER_STREAM}
+
+splunk:
+  hec_url: http://127.0.0.1:9
+  hec_path: /services/collector
+  hec_token_env: CF_ITEST_HEC_TOKEN
+  index: ""
+  metrics_index: cloudflow_metrics
+  batch_size: 500
+  flush_interval_ms: 200
+  request_timeout_ms: 2000
+  tls_verify: true
+EOF
+
+METRICS_OUT="$WORKDIR/metric_points.jsonl"
+log "running metrics sink --once --stdout over $STREAM_DNS"
+if ! "$SINK_METRICS_BIN" -c "$METRICS_SINK_CFG" --once --stdout \
+        >"$METRICS_OUT" 2>"$WORKDIR/metrics-sink.log"; then
+    cat "$WORKDIR/metrics-sink.log" >&2
+    fail "metrics sink --once --stdout failed on the DNS stream"
+fi
+
+log "emitted DNS metric points:"
+cat "$METRICS_OUT"
+if "$PY" - "$METRICS_OUT" <<'PY'
+import json, sys
+
+points = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+if not points:
+    sys.exit("FAIL: metrics sink emitted no metric points")
+
+# Locate the dns.transactions_total (or dns.rtt_seconds) point and assert its
+# metric_name value key plus the expected DNS dimensions.
+def find(name):
+    for p in points:
+        f = p.get("fields", {})
+        if f"metric_name:{name}" in f:
+            return p, f
+    return None, None
+
+p, f = find("dns.transactions_total")
+if p is None:
+    p, f = find("dns.rtt_seconds")
+if p is None:
+    sys.exit("FAIL: no dns.transactions_total / dns.rtt_seconds metric point emitted")
+
+if p.get("sourcetype") != "cloudflow:metric":
+    sys.exit(f"FAIL: sourcetype {p.get('sourcetype')!r} != 'cloudflow:metric'")
+if p.get("source") != "cloudflow:v1:wire:dns":
+    sys.exit(f"FAIL: source {p.get('source')!r} != 'cloudflow:v1:wire:dns'")
+if not isinstance(p.get("time"), (int, float)) or isinstance(p.get("time"), bool):
+    sys.exit(f"FAIL: 'time' not a number: {p.get('time')!r}")
+
+expect = {"cf_role": "client_facing", "cf_rcode": "NOERROR", "cf_qtype": "A",
+          "cf_server_ip": "192.0.2.53"}
+for k, v in expect.items():
+    if f.get(k) != v:
+        sys.exit(f"FAIL: dimension {k}={f.get(k)!r}, expected {v!r}")
+
+print(f"OK: DNS metric point present with metric_name + dimensions {expect}")
+PY
+then
+    log "metric-point validation OK"
+else
+    fail "metric-point validation failed (see above)"
+fi
+
+metrics_pending="$(probe pending "$STREAM_DNS" "$METRICS_GROUP")"
+log "pending($STREAM_DNS, $METRICS_GROUP) = $metrics_pending"
+[[ "$metrics_pending" == "0" ]] || fail "$STREAM_DNS group $METRICS_GROUP has $metrics_pending pending entries, expected 0"
+
+metrics_dl_after="$(probe xlen "$METRICS_DEADLETTER_STREAM")"
+log "dead-letter delta over metrics leg = $((metrics_dl_after - metrics_dl_before)) (expected 0)"
+[[ "$metrics_dl_after" == "$metrics_dl_before" ]] || fail "metrics leg produced dead-letter entries (before=$metrics_dl_before after=$metrics_dl_after)"
+
 log "PASS: ${#PCAPS[@]} fixtures replayed, XLENs matched, $total_expected HEC lines validated," \
     "0 pending, poison entry dead-lettered and acked;" \
-    "DNS pair correlated into 1 cloudflow:dns event on $STREAM_DNS, 0 pending."
+    "DNS pair correlated into 1 cloudflow:dns event on $STREAM_DNS, 0 pending;" \
+    "metrics sink emitted a dimensioned DNS metric point on $METRICS_GROUP, 0 pending."

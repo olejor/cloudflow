@@ -1,0 +1,24 @@
+[Unit]
+Description=CloudFlow Splunk metrics sink
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Must define SPLUNK_HEC_TOKEN (or whatever env var splunk.hec_token_env in
+# the YAML config names) -- decision D6: the HEC token is env-only, never in
+# YAML. File is not committed; deploy it out of band, e.g.:
+#   SPLUNK_HEC_TOKEN=...
+EnvironmentFile=-/etc/cloudflow/splunk-metrics.env
+ExecStart=/usr/local/bin/cloudflow-sink-splunk-metrics -c /etc/cloudflow/splunk-metrics.yaml
+# SIGTERM triggers a flush-once-then-exit; give the in-flight batch time.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+User=cloudflow
+Group=cloudflow
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
