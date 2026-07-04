@@ -12,8 +12,8 @@ Application self-reported metrics are not the source of truth in CloudFlow. Clou
 
 ## Current status
 
-**v0.1 is implemented and tested**: a DHCPv4/DHCPv6 wire-observed source,
-Redis Streams transport, and a C Splunk sink.
+**v0.1 and v0.2 are implemented and tested**: wire-observed DHCPv4/DHCPv6 and
+DNS sources, Redis Streams transport, and a C Splunk sink.
 
 ```text
 RX ring packet capture
@@ -47,7 +47,11 @@ sink-splunk
 
 The **wire-observed DNS source (v0.2)** captures udp/53 and tcp/53, parses
 DNS, and correlates each query to its response into `DnsTransactionEvent`
-events on `cloudflow:v1:wire:dns`; the Splunk sink delivers them as
+events on `cloudflow:v1:wire:dns`, carrying per-transaction RTT, a leg role
+(client-facing / backend / recursion-upstream), and an operator-defined
+`service_role` (e.g. dnsdist / recursor / authoritative, mapped from the
+server address in config via `dns.service_roles`) so DNS telemetry can be
+broken down per tier. The Splunk sink delivers them as
 `sourcetype=cloudflow:dns`. See `docs/dns-source.md`.
 
 ## Repository layout
