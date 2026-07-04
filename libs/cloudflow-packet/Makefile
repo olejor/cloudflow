@@ -22,7 +22,7 @@ CPPFLAGS := -I. -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c)
 
 BUILD_DIR := build
 
-SOURCES := cf_decap.c cf_ipfmt.c \
+SOURCES := cf_decap.c cf_ipfmt.c cf_parse_util.c cf_dns.c \
            cf_dhcpv4.c cf_dhcpv4_decode.c cf_dhcpv4_util.c cf_dhcpv4_optnames.c \
            cf_dhcpv6.c cf_dhcpv6_decode.c cf_dhcpv6_util.c cf_dhcpv6_optnames.c
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(SOURCES:.c=.o))
