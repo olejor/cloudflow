@@ -86,6 +86,14 @@ struct dns_stage {
     cf_dns_leg_config_t  leg;      /* {local_addrs, backend_addrs} from cfg */
     cf_dns_correlator_t *correlator;
     uint64_t             processed;
+
+    /* Last-synced snapshot of the correlator's CUMULATIVE loss counters. The
+     * correlator rightly keeps running totals; dns_stage_sync_stats() ADDs
+     * only the delta since this snapshot into the shared stats, so those
+     * counters honor stats.reset_on_report (CF_ATOMIC_READ_AND_ZERO in
+     * cf_dns_stats_report) exactly like every other counter -- per-interval
+     * when reset, cumulative when not. */
+    cf_dns_correlator_stats_t synced;
 };
 
 /* ------------------------------------------------------------------------
@@ -529,11 +537,27 @@ static void dns_stage_sync_stats(dns_stage_t *s)
         return;
 
     cf_dns_correlator_stats(s->correlator, &cs);
-    CF_ATOMIC_STORE(st->dns_query_unanswered_total, (unsigned long)cs.query_unanswered);
-    CF_ATOMIC_STORE(st->dns_response_unmatched_total, (unsigned long)cs.response_unmatched);
-    CF_ATOMIC_STORE(st->dns_pending_drop_total, (unsigned long)cs.pending_drop);
-    CF_ATOMIC_STORE(st->dns_pending_evicted_collision_total, (unsigned long)cs.pending_evicted_collision);
-    CF_ATOMIC_STORE(st->dns_rtt_invalid_total, (unsigned long)cs.rtt_invalid);
+
+    /* The correlator holds CUMULATIVE totals. Publish only the delta since the
+     * last sync via CF_ATOMIC_ADD so these counters honor stats.reset_on_report
+     * (cf_dns_stats_report reads them with CF_ATOMIC_READ_AND_ZERO when reset):
+     * a re-STORE of the cumulative value would make the next read re-observe
+     * all prior counts, so reset_on_report could never zero them. ADD-of-delta
+     * yields correct per-interval values under reset and still accumulates
+     * correctly without it. */
+    CF_ATOMIC_ADD(st->dns_query_unanswered_total,
+                  (unsigned long)(cs.query_unanswered - s->synced.query_unanswered));
+    CF_ATOMIC_ADD(st->dns_response_unmatched_total,
+                  (unsigned long)(cs.response_unmatched - s->synced.response_unmatched));
+    CF_ATOMIC_ADD(st->dns_pending_drop_total,
+                  (unsigned long)(cs.pending_drop - s->synced.pending_drop));
+    CF_ATOMIC_ADD(st->dns_pending_evicted_collision_total,
+                  (unsigned long)(cs.pending_evicted_collision - s->synced.pending_evicted_collision));
+    CF_ATOMIC_ADD(st->dns_rtt_invalid_total,
+                  (unsigned long)(cs.rtt_invalid - s->synced.rtt_invalid));
+    s->synced = cs;
+
+    /* A true gauge (current pending-table occupancy): STORE the live value. */
     CF_ATOMIC_STORE(st->dns_pending_table_depth, (unsigned long)cs.pending_depth);
 }
 

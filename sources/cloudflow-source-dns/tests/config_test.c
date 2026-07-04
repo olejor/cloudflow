@@ -192,6 +192,52 @@ static void test_service_roles_default_empty(void)
     cf_config_free(cfg);
 }
 
+/* parse_u32 range validation (L2): a u32 field whose value overflows uint32_t,
+ * is negative, or carries trailing junk is rejected (warn_bad_value path) and
+ * keeps its default -- it must NOT silently truncate or wrap. snaplen defaults
+ * to 1500; rx_to_stage_capacity to 65536. */
+static void test_u32_out_of_range_keeps_default(void)
+{
+    static const char *body =
+        "capture:\n"
+        "  snaplen: 5000000000\n"          /* > UINT32_MAX -> reject */
+        "queues:\n"
+        "  rx_to_stage_capacity: -1\n"      /* negative -> reject (would wrap) */
+        "  stage_to_redis_capacity: 12x\n"; /* trailing junk -> reject */
+    char path[64];
+    cf_dns_config_t *cfg;
+
+    CU_ASSERT_EQUAL_FATAL(write_tmp(body, path, sizeof(path)), 0);
+    cfg = cf_config_load(path);
+    unlink(path);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cfg);
+    CU_ASSERT_EQUAL(cfg->capture_snaplen, 1500u);
+    CU_ASSERT_EQUAL(cfg->rx_to_stage_capacity, 65536u);
+    CU_ASSERT_EQUAL(cfg->stage_to_redis_capacity, 65536u);
+
+    cf_config_free(cfg);
+}
+
+/* An in-range u32 at the uint32_t boundary is accepted verbatim. */
+static void test_u32_max_boundary_accepted(void)
+{
+    static const char *body =
+        "queues:\n"
+        "  rx_to_stage_capacity: 4294967295\n"; /* UINT32_MAX -> accept */
+    char path[64];
+    cf_dns_config_t *cfg;
+
+    CU_ASSERT_EQUAL_FATAL(write_tmp(body, path, sizeof(path)), 0);
+    cfg = cf_config_load(path);
+    unlink(path);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cfg);
+    CU_ASSERT_EQUAL(cfg->rx_to_stage_capacity, 4294967295u);
+
+    cf_config_free(cfg);
+}
+
 /* An unsupported capture.method is a fatal error (returns NULL). */
 static void test_bad_method_is_fatal(void)
 {
@@ -252,6 +298,10 @@ int main(void)
         !CU_add_test(suite, "full config parses every field", test_full_config) ||
         !CU_add_test(suite, "dns.service_roles parses + skips malformed", test_service_roles) ||
         !CU_add_test(suite, "dns.service_roles default empty", test_service_roles_default_empty) ||
+        !CU_add_test(suite, "parse_u32 out-of-range/negative keeps default",
+                     test_u32_out_of_range_keeps_default) ||
+        !CU_add_test(suite, "parse_u32 UINT32_MAX boundary accepted",
+                     test_u32_max_boundary_accepted) ||
         !CU_add_test(suite, "unsupported capture.method is fatal", test_bad_method_is_fatal) ||
         !CU_add_test(suite, "missing file is fatal", test_missing_file_is_fatal) ||
         !CU_add_test(suite, "CF_REDIS_ENDPOINTS override", test_env_override_endpoints)) {

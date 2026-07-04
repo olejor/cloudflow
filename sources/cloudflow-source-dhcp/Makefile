@@ -129,9 +129,23 @@ $(BUILD_DIR)/dhcp_bpf_test.o: tests/dhcp_bpf_test.c | $(BUILD_DIR)
 $(DHCP_BPF_TEST_BIN): $(BUILD_DIR)/dhcp_bpf_test.o $(LIB) $(CAPTURE_LIB)
 	$(LINK.o) -o $@ $(BUILD_DIR)/dhcp_bpf_test.o $(LIB) $(CAPTURE_LIB) $(DHCP_BPF_TEST_LDLIBS)
 
-test: $(FORMATTER_TEST_BIN) $(DHCP_BPF_TEST_BIN)
+# config_test: the WP-11 libyaml loader (src/config.c). Pulls only config.o out
+# of $(LIB) (plus core for cf_log/cf_stream_name) and links libyaml + libcunit.
+CONFIG_TEST_CPPFLAGS := -I. -Isrc -I$(CORE_DIR) -I$(CAPTURE_DIR) $(YAML_CFLAGS)
+CONFIG_TEST_LDLIBS   := -lcunit $(YAML_LIBS)
+
+CONFIG_TEST_BIN := $(BUILD_DIR)/config_test
+
+$(BUILD_DIR)/config_test.o: tests/config_test.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(CONFIG_TEST_CPPFLAGS) -c $< -o $@
+
+$(CONFIG_TEST_BIN): $(BUILD_DIR)/config_test.o $(LIB) $(CORE_LIB)
+	$(LINK.o) -o $@ $(BUILD_DIR)/config_test.o $(LIB) $(CORE_LIB) $(CONFIG_TEST_LDLIBS)
+
+test: $(FORMATTER_TEST_BIN) $(DHCP_BPF_TEST_BIN) $(CONFIG_TEST_BIN)
 	./$(FORMATTER_TEST_BIN)
 	./$(DHCP_BPF_TEST_BIN)
+	./$(CONFIG_TEST_BIN)
 
 # ---------------------------------------------------------------------------
 # test-asan: ASan+UBSan build of the CUnit suites. Every library source the
@@ -203,9 +217,28 @@ $(ASAN_BPF_BIN): $(BUILD_DIR)/asan_dhcp_bpf_dhcp_bpf_test.o $(BUILD_DIR)/asan_dh
                  $(BUILD_DIR)/asan_dhcp_bpf_cf_bpf.o
 	$(CC) $(ASAN_LDFLAGS) -o $@ $^ $(ASAN_BPF_LDLIBS)
 
-test-asan: $(ASAN_BIN) $(ASAN_BPF_BIN)
+# config_test under ASan/UBSan: config_test.c + config.c instrumented, linked
+# against the plain core archive (ASan's interceptors are process-global) and
+# libyaml. Mirrors the DNS source's instrumented-app-obj + plain-archive model.
+ASAN_CONFIG_CPPFLAGS := -I. -Isrc -I$(CORE_DIR) -I$(CAPTURE_DIR) $(YAML_CFLAGS)
+ASAN_CONFIG_LDLIBS   := -lcunit $(YAML_LIBS)
+
+$(BUILD_DIR)/asan_config_config_test.o: tests/config_test.c | $(BUILD_DIR)
+	$(CC) $(ASAN_CFLAGS) $(ASAN_CONFIG_CPPFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/asan_config_config.o: src/config.c | $(BUILD_DIR)
+	$(CC) $(ASAN_CFLAGS) $(ASAN_CONFIG_CPPFLAGS) -c $< -o $@
+
+ASAN_CONFIG_BIN := $(BUILD_DIR)/config_test_asan
+
+$(ASAN_CONFIG_BIN): $(BUILD_DIR)/asan_config_config_test.o $(BUILD_DIR)/asan_config_config.o $(CORE_LIB)
+	$(CC) $(ASAN_LDFLAGS) -o $@ $(BUILD_DIR)/asan_config_config_test.o \
+	    $(BUILD_DIR)/asan_config_config.o $(CORE_LIB) $(ASAN_CONFIG_LDLIBS)
+
+test-asan: $(ASAN_BIN) $(ASAN_BPF_BIN) $(ASAN_CONFIG_BIN)
 	./$(ASAN_BIN)
 	./$(ASAN_BPF_BIN)
+	./$(ASAN_CONFIG_BIN)
 
 clean:
 	rm -rf $(BUILD_DIR)
