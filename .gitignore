@@ -7,6 +7,10 @@ target/
 *.a
 *.exe
 
+# fuzz harness binaries: built ad hoc into tests/fuzz/ (not a build/ subdir),
+# run manually under AFL, never committed -- see tests/fuzz/README.md
+/tests/fuzz/*_fuzz
+
 # NOTE: generated protobuf bindings (libs/cloudflow-codec/gen/,
 # sinks/cloudflow-sink-splunk/src/cloudflow_pb/) are intentionally NOT
 # ignored -- per Decision D2 (docs/architecture.md) generated code is
