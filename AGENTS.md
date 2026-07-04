@@ -20,8 +20,8 @@ Initial scope:
 - Redis Streams producer
 - Splunk sink
 
-Do not broaden the *implementation* beyond what a task asks for. v0.1 (DHCP + Redis + Splunk event sink), the v0.2 wire-observed DNS source, and the Splunk metrics sink are implemented.
-The ClickHouse sink is designed in `docs/` but not yet built — implement it only when a task explicitly requests it. A syslog source and a relational sink are not planned. See "Current non-goals" below.
+Do not broaden the *implementation* beyond what a task asks for. v0.1 (DHCP + Redis + Splunk event sink), the v0.2 wire-observed DNS source, the Splunk metrics sink, and the ClickHouse sink are implemented.
+A syslog source and a relational sink are not planned. See "Current non-goals" below.
 
 ## Architectural rules
 
@@ -175,11 +175,12 @@ cloudflow:v1:wire:dhcpv4
 cloudflow:v1:wire:dhcpv6
 ```
 
-Consumer groups for the Splunk sinks:
+Consumer groups for the sinks:
 
 ```text
-sink-splunk            (event index)
-sink-splunk-metrics    (metrics index)
+sink-splunk            (Splunk event index)
+sink-splunk-metrics    (Splunk metrics index)
+sink-clickhouse        (ClickHouse columnar analytics)
 ```
 
 Use one consumer group per sink type. Do not make different sinks share a consumer group.
@@ -285,15 +286,14 @@ docs/dhcp-source.md              the implemented DHCP source
 docs/dns-source.md                the implemented DNS source
 docs/splunk-output.md            the Splunk event sink: consumer, HEC mapping, retry policy
 docs/splunk-metrics.md           the implemented Splunk metrics sink and its metric mapping
-docs/clickhouse-sink.md          the designed (future) ClickHouse analytics sink
+docs/clickhouse-sink.md          the implemented ClickHouse columnar analytics sink
 docs/failure-modes.md            loss/retry decisions and the tests that prove them
 docs/building-and-testing.md    build system, codegen, tests, CI, benchmark, debug tools
 ```
 
-Docs describe the system in the present tense: what it is, and — for the
-ClickHouse sink — what is designed. They are not a changelog; do
-not narrate "we did X, then replaced it with Y" in prose. Git history is the
-changelog.
+Docs describe the system in the present tense: what it is. They are not a
+changelog; do not narrate "we did X, then replaced it with Y" in prose. Git
+history is the changelog.
 
 Every non-trivial design choice should be documented, especially choices involving data loss, retries, stream trimming, event identity, or schema evolution.
 
@@ -317,11 +317,10 @@ complete). Also implemented:
 - a **Splunk metrics sink** (`docs/splunk-metrics.md`) — a second consumer
   group (`sink-splunk-metrics`) on the same wire streams emitting metric points
   for RTT/rate/count dashboards, built on `libs/cloudflow-sink-core`.
-
-Explicitly requested and designed (not yet implemented):
-
-- a **ClickHouse sink** (`docs/clickhouse-sink.md`) — columnar analytics over
-  the raw firehose, sequenced after the DNS source.
+- a **ClickHouse sink** (`docs/clickhouse-sink.md`) — a third consumer group
+  (`sink-clickhouse`) on the same wire streams, writing each event as one row
+  into a wide `ReplacingMergeTree` `events` table for columnar analytics over
+  the raw firehose, also built on `libs/cloudflow-sink-core`.
 
 A relational sink for derived state (a lease table, a client inventory) is
 deliberately **not** planned yet — it needs a correlation/aggregation stage

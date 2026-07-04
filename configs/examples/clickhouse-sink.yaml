@@ -1,0 +1,30 @@
+service:
+  name: cloudflow-sink-clickhouse
+  consumer_name: clickhouse-01
+
+redis:
+  endpoints:
+    - redis01:6379
+    - redis02:6379
+    - redis03:6379
+  streams:
+    - cloudflow:v1:wire:dhcpv4
+    - cloudflow:v1:wire:dhcpv6
+    - cloudflow:v1:wire:dns
+  consumer_group: sink-clickhouse
+  read_count: 100
+  block_ms: 1000
+  deadletter_stream: cloudflow:v1:deadletter:sink-clickhouse
+
+clickhouse:
+  url: https://clickhouse.example.com:8443   # HTTP interface base URL
+  database: cloudflow
+  table: events
+  # HTTP Basic credentials -- these name ENV VARS, never literal secrets (D6).
+  # Omit both for a ClickHouse that needs no auth.
+  user_env: CLICKHOUSE_USER
+  password_env: CLICKHOUSE_PASSWORD
+  batch_size: 10000                          # ClickHouse strongly prefers large INSERT batches
+  flush_interval_ms: 1000
+  request_timeout_ms: 5000
+  tls_verify: true

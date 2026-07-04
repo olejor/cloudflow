@@ -1,0 +1,25 @@
+[Unit]
+Description=CloudFlow ClickHouse sink
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Must define the env vars named by clickhouse.user_env / clickhouse.password_env
+# in the YAML config (decision D6: credentials are env-only, never in YAML).
+# File is not committed; deploy it out of band, e.g.:
+#   CLICKHOUSE_USER=...
+#   CLICKHOUSE_PASSWORD=...
+EnvironmentFile=-/etc/cloudflow/clickhouse-sink.env
+ExecStart=/usr/local/bin/cloudflow-sink-clickhouse -c /etc/cloudflow/clickhouse-sink.yaml
+# SIGTERM triggers a flush-once-then-exit; give the in-flight batch time.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+User=cloudflow
+Group=cloudflow
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

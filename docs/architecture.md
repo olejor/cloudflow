@@ -109,12 +109,12 @@ transform and delivery client differ.
 |---|---|---|---|
 | `cloudflow-sink-splunk` | Splunk HEC event index | full-fidelity forensic record; searchable JSON | v0.1, implemented |
 | `cloudflow-sink-splunk-metrics` | Splunk HEC metrics index | rates, latency distributions, counts for dashboards/alerting | implemented — `docs/splunk-metrics.md` |
-| `cloudflow-sink-clickhouse` | ClickHouse | columnar/analytical navigation of the raw firehose | designed, future — `docs/clickhouse-sink.md` |
+| `cloudflow-sink-clickhouse` | ClickHouse | columnar/analytical navigation of the raw firehose | implemented — `docs/clickhouse-sink.md` |
 
-The ClickHouse sink is documented but not yet built; it is
-sequenced after the DNS source, since DNS RTT/rate data and its
-high-cardinality joins are what most justify a dedicated metrics store and a
-columnar analytics store.
+All three sinks are implemented; each is a distinct consumer group on the same
+wire streams. The ClickHouse sink writes each event as one row into a wide
+`ReplacingMergeTree` `events` table (`event_id` dedup, D5) for fast columnar
+scans, joins and high-cardinality group-bys.
 
 ## Design decisions
 
@@ -214,8 +214,15 @@ cloudflow/
 │   │   ├── systemd/
 │   │   ├── tests/
 │   │   └── README.md
-│   └── cloudflow-sink-splunk-metrics/
+│   ├── cloudflow-sink-splunk-metrics/
+│   │   ├── src/
+│   │   ├── config/
+│   │   ├── systemd/
+│   │   ├── tests/
+│   │   └── README.md
+│   └── cloudflow-sink-clickhouse/
 │       ├── src/
+│       ├── schema/
 │       ├── config/
 │       ├── systemd/
 │       ├── tests/

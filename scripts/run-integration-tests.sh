@@ -36,6 +36,7 @@ SOURCE_BIN="$REPO_ROOT/sources/cloudflow-source-dhcp/build/cloudflow-source-dhcp
 DNS_SOURCE_BIN="$REPO_ROOT/sources/cloudflow-source-dns/build/cloudflow-source-dns"
 SINK_BIN="$REPO_ROOT/sinks/cloudflow-sink-splunk/build/cloudflow-sink-splunk"
 SINK_METRICS_BIN="$REPO_ROOT/sinks/cloudflow-sink-splunk-metrics/build/cloudflow-sink-splunk-metrics"
+SINK_CLICKHOUSE_BIN="$REPO_ROOT/sinks/cloudflow-sink-clickhouse/build/cloudflow-sink-clickhouse"
 
 STREAM_V4="cloudflow:v1:wire:dhcpv4"
 STREAM_V6="cloudflow:v1:wire:dhcpv6"
@@ -44,6 +45,8 @@ DEADLETTER_STREAM="cloudflow:v1:deadletter:sink-splunk"
 CONSUMER_GROUP="sink-splunk"
 METRICS_DEADLETTER_STREAM="cloudflow:v1:deadletter:sink-splunk-metrics"
 METRICS_GROUP="sink-splunk-metrics"
+CLICKHOUSE_DEADLETTER_STREAM="cloudflow:v1:deadletter:sink-clickhouse"
+CLICKHOUSE_GROUP="sink-clickhouse"
 
 log() { echo "[integration] $*"; }
 fail() { echo "[integration] FAIL: $*" >&2; exit 1; }
@@ -79,16 +82,17 @@ if [[ -z "$PY" ]]; then
 fi
 
 binaries_present() {
-    [[ -x "$SOURCE_BIN" && -x "$DNS_SOURCE_BIN" && -x "$SINK_BIN" && -x "$SINK_METRICS_BIN" ]]
+    [[ -x "$SOURCE_BIN" && -x "$DNS_SOURCE_BIN" && -x "$SINK_BIN" && -x "$SINK_METRICS_BIN" &&
+       -x "$SINK_CLICKHOUSE_BIN" ]]
 }
 
 if ! binaries_present; then
-    log "binaries not found ($SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN, $SINK_METRICS_BIN); running 'make build'..."
+    log "binaries not found ($SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN, $SINK_METRICS_BIN, $SINK_CLICKHOUSE_BIN); running 'make build'..."
     if ! (cd "$REPO_ROOT" && make build); then
         fail "'make build' failed"
     fi
 fi
-binaries_present || fail "required binaries still missing after 'make build': one of $SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN, $SINK_METRICS_BIN"
+binaries_present || fail "required binaries still missing after 'make build': one of $SOURCE_BIN, $DNS_SOURCE_BIN, $SINK_BIN, $SINK_METRICS_BIN, $SINK_CLICKHOUSE_BIN"
 
 [[ -f "$MANIFEST" ]] || fail "missing manifest $MANIFEST"
 [[ -f "$REDIS_PROBE" ]] || fail "missing helper $REDIS_PROBE"
@@ -136,7 +140,7 @@ probe() { "$PY" "$REDIS_PROBE" --host "$REDIS_HOST" --port "$REDIS_PORT" "$@"; }
 # ---- 2. flush the CloudFlow streams --------------------------------------
 log "flushing CloudFlow streams"
 probe del "$STREAM_V4" "$STREAM_V6" "$STREAM_DNS" "$DEADLETTER_STREAM" \
-    "$METRICS_DEADLETTER_STREAM" >/dev/null
+    "$METRICS_DEADLETTER_STREAM" "$CLICKHOUSE_DEADLETTER_STREAM" >/dev/null
 
 # ---- 3. run the source --replay over every fixture pcap ------------------
 # Fixed source_host/capture_interface (independent of the machine running
@@ -502,7 +506,99 @@ metrics_dl_after="$(probe xlen "$METRICS_DEADLETTER_STREAM")"
 log "dead-letter delta over metrics leg = $((metrics_dl_after - metrics_dl_before)) (expected 0)"
 [[ "$metrics_dl_after" == "$metrics_dl_before" ]] || fail "metrics leg produced dead-letter entries (before=$metrics_dl_before after=$metrics_dl_after)"
 
+# ---- 10. ClickHouse leg (WP-CH02): sink-clickhouse over the same streams ----
+# CI has no ClickHouse server, so this runs the ClickHouse sink in --stdout mode:
+# it "delivers" by PRINTING the JSONEachRow rows (which still acks the entries),
+# so we get end-to-end coverage of the row transform + consumer/ack path without
+# a real INSERT. A yet-THIRD consumer group (sink-clickhouse) reads the already
+# replayed wire streams independently of the two Splunk groups. Assert the DNS
+# transaction produced a JSONEachRow row carrying the expected analytical keys
+# (event_id / source_type / qname / role / service_role), with 0 pending after
+# ack. A real ClickHouse INSERT is a documented manual step (see the sink README).
+log "clickhouse leg: consuming with the $CLICKHOUSE_GROUP group over $STREAM_DNS"
+clickhouse_dl_before="$(probe xlen "$CLICKHOUSE_DEADLETTER_STREAM")"
+
+CLICKHOUSE_SINK_CFG="$WORKDIR/clickhouse-sink.itest.yaml"
+cat >"$CLICKHOUSE_SINK_CFG" <<EOF
+service:
+  name: cloudflow-sink-clickhouse
+  consumer_name: itest-clickhouse-01
+
+redis:
+  endpoints:
+    - ${REDIS_HOST}:${REDIS_PORT}
+  streams:
+    - ${STREAM_DNS}
+  consumer_group: ${CLICKHOUSE_GROUP}
+  read_count: 200
+  block_ms: 200
+  deadletter_stream: ${CLICKHOUSE_DEADLETTER_STREAM}
+
+clickhouse:
+  url: http://127.0.0.1:9
+  database: cloudflow
+  table: events
+  batch_size: 500
+  flush_interval_ms: 200
+  request_timeout_ms: 2000
+  tls_verify: true
+EOF
+
+CLICKHOUSE_OUT="$WORKDIR/clickhouse_rows.jsonl"
+log "running clickhouse sink --once --stdout over $STREAM_DNS"
+if ! "$SINK_CLICKHOUSE_BIN" -c "$CLICKHOUSE_SINK_CFG" --once --stdout \
+        >"$CLICKHOUSE_OUT" 2>"$WORKDIR/clickhouse-sink.log"; then
+    cat "$WORKDIR/clickhouse-sink.log" >&2
+    fail "clickhouse sink --once --stdout failed on the DNS stream"
+fi
+
+log "emitted DNS JSONEachRow row(s):"
+cat "$CLICKHOUSE_OUT"
+if "$PY" - "$CLICKHOUSE_OUT" <<'PY'
+import json, sys
+
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+if not rows:
+    sys.exit("FAIL: clickhouse sink emitted no rows")
+
+# Locate the DNS transaction row and assert its analytical keys/values.
+dns = [r for r in rows if r.get("source_type") == "dns"]
+if not dns:
+    sys.exit("FAIL: no source_type=dns JSONEachRow row emitted")
+r = dns[0]
+
+expect = {"source_type": "dns", "qname": "www.example.com", "role": "client_facing"}
+# event_id is deterministic per observation but derived from the pcap bytes, so
+# assert only that it is present and non-empty rather than a hard-coded value.
+if not r.get("event_id"):
+    sys.exit("FAIL: DNS row missing a non-empty event_id")
+for k, v in expect.items():
+    if r.get(k) != v:
+        sys.exit(f"FAIL: row {k}={r.get(k)!r}, expected {v!r}")
+# service_role is a stable DNS identity column: the KEY must be present (its
+# value is "" here since the committed fixture maps no operator role).
+if "service_role" not in r:
+    sys.exit("FAIL: DNS row missing the service_role key")
+
+print(f"OK: DNS JSONEachRow row present with event_id={r['event_id']!r}, "
+      f"source_type/qname/role and a service_role key")
+PY
+then
+    log "JSONEachRow row validation OK"
+else
+    fail "JSONEachRow row validation failed (see above)"
+fi
+
+clickhouse_pending="$(probe pending "$STREAM_DNS" "$CLICKHOUSE_GROUP")"
+log "pending($STREAM_DNS, $CLICKHOUSE_GROUP) = $clickhouse_pending"
+[[ "$clickhouse_pending" == "0" ]] || fail "$STREAM_DNS group $CLICKHOUSE_GROUP has $clickhouse_pending pending entries, expected 0"
+
+clickhouse_dl_after="$(probe xlen "$CLICKHOUSE_DEADLETTER_STREAM")"
+log "dead-letter delta over clickhouse leg = $((clickhouse_dl_after - clickhouse_dl_before)) (expected 0)"
+[[ "$clickhouse_dl_after" == "$clickhouse_dl_before" ]] || fail "clickhouse leg produced dead-letter entries (before=$clickhouse_dl_before after=$clickhouse_dl_after)"
+
 log "PASS: ${#PCAPS[@]} fixtures replayed, XLENs matched, $total_expected HEC lines validated," \
     "0 pending, poison entry dead-lettered and acked;" \
     "DNS pair correlated into 1 cloudflow:dns event on $STREAM_DNS, 0 pending;" \
-    "metrics sink emitted a dimensioned DNS metric point on $METRICS_GROUP, 0 pending."
+    "metrics sink emitted a dimensioned DNS metric point on $METRICS_GROUP, 0 pending;" \
+    "clickhouse sink emitted a DNS JSONEachRow row on $CLICKHOUSE_GROUP, 0 pending."
