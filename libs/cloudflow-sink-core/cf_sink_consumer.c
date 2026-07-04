@@ -1,21 +1,57 @@
-#include "consumer.h"
+#include "cf_sink_consumer.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #include "cf_log.h"
+#include "cf_sink_deadletter.h"
 #include "cf_stats.h"
 #include "cf_sync.h"
 #include "cf_time.h"
-#include "deadletter.h"
-#include "transform.h"
 
 #include "cloudflow/v1/envelope.pb-c.h"
 
 #define REQUIRED_ENCODING "protobuf"
 #define REQUIRED_SCHEMA "cloudflow.v1.CloudFlowEvent"
 
-int cf_consumer_init(cf_consumer_t *c, redisContext *ctx, const cf_config_t *cfg,
+/* ---- byte accumulator --------------------------------------------------- */
+
+int cf_sink_buf_append(cf_sink_buf_t *b, const char *s, size_t n)
+{
+    if (b->len + n + 1 > b->cap) {
+        size_t newcap = b->cap ? b->cap * 2 : 256;
+        char *tmp;
+        while (newcap < b->len + n + 1)
+            newcap *= 2;
+        tmp = realloc(b->data, newcap);
+        if (!tmp)
+            return -1;
+        b->data = tmp;
+        b->cap = newcap;
+    }
+    if (n)
+        memcpy(b->data + b->len, s, n);
+    b->len += n;
+    b->data[b->len] = '\0';
+    return 0;
+}
+
+void cf_sink_buf_reset(cf_sink_buf_t *b)
+{
+    b->len = 0;
+    if (b->data)
+        b->data[0] = '\0';
+}
+
+void cf_sink_buf_free(cf_sink_buf_t *b)
+{
+    free(b->data);
+    b->data = NULL;
+    b->len = 0;
+    b->cap = 0;
+}
+
+int cf_consumer_init(cf_consumer_t *c, redisContext *ctx, const cf_sink_config_t *cfg,
                      cf_stats_t *stats)
 {
     size_t i;
@@ -37,6 +73,12 @@ int cf_consumer_init(cf_consumer_t *c, redisContext *ctx, const cf_config_t *cfg
             return -1;
     }
     return 0;
+}
+
+void cf_consumer_set_transform(cf_consumer_t *c, cf_sink_transform_fn fn, void *user)
+{
+    c->transform = fn;
+    c->transform_user = user;
 }
 
 void cf_consumer_set_stdout(cf_consumer_t *c, FILE *stream)
@@ -136,8 +178,8 @@ static void dead_letter_and_ack(cf_consumer_t *c, const char *stream, const char
 {
     /* Dead-letter must succeed before ack; if it fails the entry stays
      * pending and is retried (at-least-once). */
-    if (cf_deadletter_write(c->ctx, c->stats, reason, stream, entry_id, error, payload,
-                            payload_len) == 0)
+    if (cf_deadletter_write(c->ctx, c->stats, c->cfg->redis.deadletter_stream, reason, stream,
+                            entry_id, error, payload, payload_len) == 0)
         xack(c, stream, entry_id);
 }
 
@@ -150,7 +192,9 @@ static void process_entry(cf_consumer_t *c, const char *stream, const char *entr
     const uint8_t *pbytes;
     size_t plen;
     Cloudflow__V1__CloudFlowEvent *ev;
+    cf_sink_buf_t buf = {0};
     char *line;
+    int trc;
 
     if (!encoding || !schema || !payload || encoding->type != REDIS_REPLY_STRING ||
         schema->type != REDIS_REPLY_STRING || payload->type != REDIS_REPLY_STRING ||
@@ -176,16 +220,27 @@ static void process_entry(cf_consumer_t *c, const char *stream, const char *entr
         return;
     }
 
-    line = cf_transform_render_hec_line(ev, stream, &c->cfg->splunk);
+    trc = c->transform ? c->transform(c->transform_user, ev, stream, &buf) : -1;
     cloudflow__v1__cloud_flow_event__free_unpacked(ev, NULL);
 
-    if (!line) {
+    if (trc != 0) {
+        cf_sink_buf_free(&buf);
         CF_ATOMIC_INC(c->stats->protobuf_decode_errors_total);
         dead_letter_and_ack(c, stream, entry_id, CF_DEADLETTER_REASON_DECODE_ERROR,
                             "transform error", pbytes, plen);
         return;
     }
 
+    if (buf.len == 0) {
+        /* Transform produced no output for this event: nothing to deliver,
+         * ack it so it does not linger pending. */
+        cf_sink_buf_free(&buf);
+        xack(c, stream, entry_id);
+        return;
+    }
+
+    line = buf.data; /* take ownership of the accumulator's bytes */
+    buf.data = NULL;
     if (batch_append(c, stream, entry_id, line, pbytes, plen) != 0) {
         free(line);
         cf_log(CF_LOG_ERROR, "batch append failed (out of memory)", NULL);
@@ -273,10 +328,10 @@ static int should_flush(cf_consumer_t *c)
 {
     if (c->batch_len == 0)
         return 0;
-    if ((int)c->batch_len >= c->cfg->splunk.batch_size)
+    if ((int)c->batch_len >= c->cfg->hec.batch_size)
         return 1;
     if ((cf_now_mono_nano() - c->last_flush_mono_ns) / 1000000LL >=
-        c->cfg->splunk.flush_interval_ms)
+        c->cfg->hec.flush_interval_ms)
         return 1;
     return 0;
 }

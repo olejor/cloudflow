@@ -315,13 +315,13 @@ static void format_hec_time(int64_t nanos, char *buf, size_t cap)
 }
 
 char *cf_transform_render_hec_line(const Cloudflow__V1__CloudFlowEvent *ev,
-                                   const char *stream_name,
-                                   const cf_splunk_config_t *splunk)
+                                   const char *stream_name, const cf_config_t *cfg)
 {
     yyjson_mut_doc *doc = NULL;
     yyjson_mut_val *root = NULL;
     yyjson_mut_val *event_obj = NULL;
     const Cloudflow__V1__EventEnvelope *env = ev ? ev->envelope : NULL;
+    const char *index = cfg->base.hec.index;
     char st_buf[128];
     char time_buf[48];
     const char *sourcetype;
@@ -336,15 +336,15 @@ char *cf_transform_render_hec_line(const Cloudflow__V1__CloudFlowEvent *ev,
     if (!doc)
         return NULL;
 
-    event_obj = build_message(doc, &ev->base, splunk->include_raw_payload);
+    event_obj = build_message(doc, &ev->base, cfg->include_raw_payload);
     if (!event_obj)
         goto done;
 
     host = env->source_host ? env->source_host : "";
     source = (env->stream_name && env->stream_name[0]) ? env->stream_name
                                                        : (stream_name ? stream_name : "");
-    sourcetype = cf_splunk_sourcetype_for(splunk, env->source_type ? env->source_type : "",
-                                          st_buf, sizeof(st_buf));
+    sourcetype = cf_splunk_sourcetype_for(cfg, env->source_type ? env->source_type : "", st_buf,
+                                          sizeof(st_buf));
     format_hec_time(env->observed_time_unix_nano, time_buf, sizeof(time_buf));
 
     root = yyjson_mut_obj(doc);
@@ -355,8 +355,8 @@ char *cf_transform_render_hec_line(const Cloudflow__V1__CloudFlowEvent *ev,
      * time) to match the Python --stdout sort_keys output. */
     yyjson_mut_obj_add_val(doc, root, "event", event_obj);
     yyjson_mut_obj_add_strcpy(doc, root, "host", host);
-    if (splunk->index && splunk->index[0])
-        yyjson_mut_obj_add_strcpy(doc, root, "index", splunk->index);
+    if (index && index[0])
+        yyjson_mut_obj_add_strcpy(doc, root, "index", index);
     yyjson_mut_obj_add_strcpy(doc, root, "source", source);
     yyjson_mut_obj_add_strcpy(doc, root, "sourcetype", sourcetype);
     /* time must render as a bare JSON number with all 9 decimals preserved. */

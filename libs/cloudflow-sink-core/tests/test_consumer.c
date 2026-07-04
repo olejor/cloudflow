@@ -1,8 +1,11 @@
-/* WP-17 consumer suite against a private redis-server (same spawn/skip
- * pattern as libs/cloudflow-redis/tests).
+/* Shared sink spine (A1) consumer suite against a private redis-server (same
+ * spawn/skip pattern as libs/cloudflow-redis/tests). Moved out of the event
+ * sink: it exercises spine behavior only (consumer group, XAUTOCLAIM reclaim,
+ * protobuf-unpack validation, dead-letter), so it drives the consumer with a
+ * trivial transform that emits one constant line per event.
  *
  * docs/splunk-output.md acceptance criteria:
- *  - 100 events -> `--once --stdout` prints 100 mapped events, 0 pending;
+ *  - 100 events -> `--once --stdout` prints 100 mapped lines, 0 pending;
  *  - a crashed consumer's pending entries are reclaimed by a second consumer
  *    via XAUTOCLAIM;
  *  - a poison entry is dead-lettered (reason=decode_error) and XACKed.
@@ -25,13 +28,16 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "config.h"
-#include "consumer.h"
-#include "deadletter.h"
-#include "stats.h"
+#include "cf_sink_config.h"
+#include "cf_sink_consumer.h"
+#include "cf_sink_deadletter.h"
+#include "cf_sink_stats.h"
+
+#include "cloudflow/v1/envelope.pb-c.h"
 
 #define STREAM "cloudflow:v1:wire:dhcpv4"
 #define GROUP "sink-splunk"
+#define DEADLETTER "cloudflow:v1:deadletter:sink-splunk"
 
 static pid_t g_redis_pid = -1;
 static char g_redis_tmpdir[64];
@@ -159,11 +165,22 @@ static void stop_redis(void)
 
 /* ---- helpers ------------------------------------------------------------ */
 
-static const char *ST_KEYS[] = {"dhcpv4", "dhcpv6"};
-static const char *ST_VALS[] = {"cloudflow:dhcpv4", "cloudflow:dhcpv6"};
 static const char *STREAMS[] = {STREAM};
 
-static void make_cfg(cf_config_t *c, const char *consumer_name)
+/* Trivial spine transform: one constant HEC line per event (the event mapping
+ * the sink layers on top lives in cloudflow-sink-splunk and is exercised by
+ * its golden suite). */
+static int test_transform(void *user, const Cloudflow__V1__CloudFlowEvent *ev,
+                          const char *source_stream, cf_sink_buf_t *out)
+{
+    static const char line[] = "{\"event\":\"x\"}";
+    (void)user;
+    (void)ev;
+    (void)source_stream;
+    return cf_sink_buf_append(out, line, sizeof(line) - 1);
+}
+
+static void make_cfg(cf_sink_config_t *c, const char *consumer_name)
 {
     memset(c, 0, sizeof(*c));
     c->service.name = (char *)"test";
@@ -171,37 +188,39 @@ static void make_cfg(cf_config_t *c, const char *consumer_name)
     c->redis.streams = (char **)STREAMS;
     c->redis.stream_count = 1;
     c->redis.consumer_group = (char *)GROUP;
+    c->redis.deadletter_stream = (char *)DEADLETTER;
     c->redis.read_count = 100;
     c->redis.block_ms = 100;
-    c->splunk.index = (char *)"network";
-    c->splunk.st_keys = (char **)ST_KEYS;
-    c->splunk.st_vals = (char **)ST_VALS;
-    c->splunk.st_count = 2;
-    c->splunk.batch_size = 500;
-    c->splunk.flush_interval_ms = 100000;
+    c->hec.index = (char *)"network";
+    c->hec.batch_size = 500;
+    c->hec.flush_interval_ms = 100000;
 }
 
 static uint8_t *g_payload;
 static size_t g_payload_len;
 
-/* Returns 0 on success. Uses plain error handling (not CU_ASSERT) because it
- * runs before the CUnit registry/suite is active. */
-static int load_fixture(void)
+/* Build a valid, packed CloudFlowEvent in C (no python bindings needed): the
+ * spine only needs it to unpack successfully so the transform is reached. */
+static int build_event(void)
 {
-    FILE *f = fopen("tests/fixtures/dhcpv4_discover.pb", "rb");
-    long n;
-    if (!f)
+    Cloudflow__V1__EventEnvelope env = CLOUDFLOW__V1__EVENT_ENVELOPE__INIT;
+    Cloudflow__V1__CloudFlowEvent ev = CLOUDFLOW__V1__CLOUD_FLOW_EVENT__INIT;
+    size_t n;
+
+    env.event_id = (char *)"ab12cd34ef56ab12cd34ef56ab12cd34";
+    env.schema_version = 1;
+    env.source_type = (char *)"dhcpv4";
+    env.source_host = (char *)"test-host.example.net";
+    env.observed_time_unix_nano = 1730000000123456789LL;
+    env.stream_name = (char *)STREAM;
+    ev.envelope = &env;
+
+    n = cloudflow__v1__cloud_flow_event__get_packed_size(&ev);
+    g_payload = malloc(n ? n : 1);
+    if (!g_payload)
         return -1;
-    fseek(f, 0, SEEK_END);
-    n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    g_payload = malloc((size_t)n);
-    if (!g_payload || fread(g_payload, 1, (size_t)n, f) != (size_t)n) {
-        fclose(f);
-        return -1;
-    }
-    g_payload_len = (size_t)n;
-    fclose(f);
+    cloudflow__v1__cloud_flow_event__pack(&ev, g_payload);
+    g_payload_len = n;
     return 0;
 }
 
@@ -252,7 +271,7 @@ static int count_lines(FILE *f)
 static void test_100_events(void)
 {
     redisContext *admin = rconnect();
-    cf_config_t cfg;
+    cf_sink_config_t cfg;
     cf_stats_t stats;
     cf_consumer_t consumer;
     FILE *out;
@@ -270,6 +289,7 @@ static void test_100_events(void)
     cf_stats_init(&stats);
     make_cfg(&cfg, "splunk-01");
     CU_ASSERT_EQUAL_FATAL(cf_consumer_init(&consumer, admin, &cfg, &stats), 0);
+    cf_consumer_set_transform(&consumer, test_transform, NULL);
     cf_consumer_set_stdout(&consumer, out);
     cf_consumer_run_once(&consumer);
 
@@ -285,7 +305,7 @@ static void test_100_events(void)
 static void test_xautoclaim_redelivery(void)
 {
     redisContext *admin = rconnect();
-    cf_config_t cfg;
+    cf_sink_config_t cfg;
     cf_stats_t stats;
     cf_consumer_t consumer;
     FILE *out;
@@ -316,6 +336,7 @@ static void test_xautoclaim_redelivery(void)
     cf_stats_init(&stats);
     make_cfg(&cfg, "splunk-02");
     CU_ASSERT_EQUAL_FATAL(cf_consumer_init(&consumer, admin, &cfg, &stats), 0);
+    cf_consumer_set_transform(&consumer, test_transform, NULL);
     cf_consumer_set_stdout(&consumer, out);
     cf_consumer_set_min_idle_ms(&consumer, 0);
     cf_consumer_run_once(&consumer);
@@ -332,7 +353,7 @@ static void test_xautoclaim_redelivery(void)
 static void test_poison_dead_lettered(void)
 {
     redisContext *admin = rconnect();
-    cf_config_t cfg;
+    cf_sink_config_t cfg;
     cf_stats_t stats;
     cf_consumer_t consumer;
     FILE *out;
@@ -357,6 +378,7 @@ static void test_poison_dead_lettered(void)
     cf_stats_init(&stats);
     make_cfg(&cfg, "splunk-01");
     CU_ASSERT_EQUAL_FATAL(cf_consumer_init(&consumer, admin, &cfg, &stats), 0);
+    cf_consumer_set_transform(&consumer, test_transform, NULL);
     cf_consumer_set_stdout(&consumer, out);
     cf_consumer_run_once(&consumer);
 
@@ -368,7 +390,7 @@ static void test_poison_dead_lettered(void)
     CU_ASSERT_EQUAL(decode_errs, 1ul);
 
     /* one dead-letter entry, reason=decode_error, original bytes preserved */
-    r = redisCommand(admin, "XRANGE %s - +", CF_DEADLETTER_STREAM);
+    r = redisCommand(admin, "XRANGE %s - +", DEADLETTER);
     CU_ASSERT_PTR_NOT_NULL_FATAL(r);
     CU_ASSERT_EQUAL(r->type, REDIS_REPLY_ARRAY);
     CU_ASSERT_EQUAL(r->elements, 1u);
@@ -414,9 +436,8 @@ int main(void)
         return 1;
     }
 
-    if (load_fixture() != 0) {
-        fprintf(stderr, "test_consumer: could not load tests/fixtures/dhcpv4_discover.pb "
-                        "(run `make fixtures`)\n");
+    if (build_event() != 0) {
+        fprintf(stderr, "test_consumer: could not build the test CloudFlowEvent\n");
         stop_redis();
         return 1;
     }

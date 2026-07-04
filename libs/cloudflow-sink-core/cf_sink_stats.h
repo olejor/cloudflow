@@ -1,10 +1,12 @@
-#ifndef CF_SINK_SPLUNK_STATS_H
-#define CF_SINK_SPLUNK_STATS_H
+#ifndef CF_SINK_CORE_STATS_H
+#define CF_SINK_CORE_STATS_H
 
-/* WP-17 -- counters + periodic structured stats line.
+/* Shared sink spine (A1) -- counters + periodic structured stats line.
  *
- * Counter set from docs/splunk-output.md. Emitted as one JSON object
- * per line via cf_log (Convention 7). The HEC token is NEVER a field here. */
+ * Base counter set from docs/splunk-output.md, shared by every Splunk sink
+ * (event and the designed metrics sink); a sink may extend it with its own
+ * fields. Emitted as one JSON object per line via cf_log (Convention 7). The
+ * HEC token is NEVER a field here. */
 
 #include <stdatomic.h>
 #include <stdint.h>

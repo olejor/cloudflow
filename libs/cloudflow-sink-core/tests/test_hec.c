@@ -22,9 +22,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "config.h"
-#include "hec.h"
-#include "stats.h"
+#include "cf_sink_config.h"
+#include "cf_sink_hec.h"
+#include "cf_sink_stats.h"
 
 #define TOKEN "SUPER-SECRET-HEC-TOKEN-DO-NOT-LOG"
 #define TOKEN_ENV "CF_TEST_HEC_TOKEN"
@@ -107,10 +107,11 @@ static void no_sleep(double s, void *ctx)
     (void)ctx;
 }
 
-static void make_cfg(cf_splunk_config_t *s, const char *url)
+static void make_cfg(cf_hec_config_t *s, const char *url)
 {
     memset(s, 0, sizeof(*s));
     s->hec_url = (char *)url;
+    s->hec_path = (char *)""; /* url already carries the endpoint path */
     s->hec_token_env = (char *)TOKEN_ENV;
     s->index = (char *)"";
     s->request_timeout_ms = 2000;
@@ -145,7 +146,7 @@ static void test_5xx_then_2xx(void)
     int port = free_port();
     char url[128], reqlog[64];
     pid_t stub;
-    cf_splunk_config_t cfg;
+    cf_hec_config_t cfg;
     cf_stats_t stats;
     cf_hec_client_t *client;
     cf_batch_item_t items[2];
@@ -200,7 +201,7 @@ static void test_bisect_poison(void)
     int port = free_port();
     char url[128], reqlog[64];
     pid_t stub;
-    cf_splunk_config_t cfg;
+    cf_hec_config_t cfg;
     cf_stats_t stats;
     cf_hec_client_t *client;
     cf_batch_item_t items[3];
@@ -254,7 +255,7 @@ static void test_token_never_logged(void)
     int port = free_port();
     char url[128], reqlog[64];
     pid_t stub;
-    cf_splunk_config_t cfg;
+    cf_hec_config_t cfg;
     cf_stats_t stats;
     cf_hec_client_t *client;
     cf_batch_item_t item;
