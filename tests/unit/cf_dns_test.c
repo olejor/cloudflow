@@ -70,6 +70,13 @@ static void put_name(buf_t *m, const char *dotted)
     put_u8(m, 0);
 }
 
+/* Emits a 2-byte compression pointer to absolute offset `off`. */
+static void put_ptr(buf_t *m, size_t off)
+{
+    put_u8(m, (uint8_t)(0xc0 | ((off >> 8) & 0x3f)));
+    put_u8(m, (uint8_t)(off & 0xff));
+}
+
 static void put_header(buf_t *m, uint16_t id, uint8_t flags1, uint8_t flags2,
                        uint16_t qd, uint16_t an, uint16_t ns, uint16_t ar)
 {
@@ -94,6 +101,19 @@ static void free_warnings(cf_warn_list_t *w)
     for (i = 0; i < n; i++)
         cloudflow__v1__parser_warning__free_unpacked(items[i], NULL);
     free(items);
+}
+
+/* Drains + frees all warnings, returning how many there were. */
+static size_t drain_warnings(cf_warn_list_t *w)
+{
+    size_t n, i;
+    Cloudflow__V1__ParserWarning **items;
+
+    cf_warn_list_take(w, &n, &items);
+    for (i = 0; i < n; i++)
+        cloudflow__v1__parser_warning__free_unpacked(items[i], NULL);
+    free(items);
+    return n;
 }
 
 /* ---- single-question query ------------------------------------------------ */
@@ -488,6 +508,205 @@ static void test_never_crashes(void)
     CU_PASS("no crash across truncation sweep and single-bit-flip sweep");
 }
 
+/* ---- security regressions: decode_name NUL-termination on failure --------- */
+
+/* These exercise the decode_name() malformed-input paths that historically
+ * left `out` NON-terminated (the terminator was written only on the success
+ * path). Callers (build_question / build_rr) then cf_dup_str() `out`, so a
+ * missing terminator leaked adjacent uninitialized stack into the emitted
+ * name -- an info-leak plus a potential OOB read when the tail had no NUL.
+ * Each case asserts the surfaced name equals its exact best-partial prefix
+ * with NO trailing garbage, so a non-terminated buffer would fail the string
+ * equality. These are also the primary payoff of the ASan/UBSan builds. */
+
+/* Case: a name that is a single label running to end-of-message with no
+ * terminating zero (decode_name's "ran off the end" path). consumed stays 0,
+ * so no question is emitted, but the parser must stay clean and warn. */
+static void test_name_runs_off_end(void)
+{
+    buf_t m;
+    Cloudflow__V1__DnsMessage *msg = NULL;
+    cf_warn_list_t w;
+
+    cf_warn_list_init(&w);
+    buf_init(&m);
+    put_header(&m, 0x8001, 0x01, 0x00, 1, 0, 0, 0); /* qd=1 */
+    /* "com" with no terminating zero and no type/class after it. */
+    put_u8(&m, 3);
+    put_bytes(&m, (const uint8_t *)"com", 3);
+
+    CU_ASSERT_EQUAL_FATAL(cf_dns_parse(m.b, m.n, &msg, &w), 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(msg);
+    CU_ASSERT_EQUAL(msg->n_questions, 0); /* nothing usable decoded */
+    CU_ASSERT_TRUE(drain_warnings(&w) >= 1);
+
+    cloudflow__v1__dns_message__free_unpacked(msg, NULL);
+}
+
+/* Case: a name whose last element is a compression pointer pointing at itself
+ * (rejected as a non-backward pointer). A valid label precedes the pointer, so
+ * consumed>0 and the best partial "ns" must be surfaced NUL-terminated. */
+static void test_name_self_pointer_partial(void)
+{
+    buf_t m;
+    Cloudflow__V1__DnsMessage *msg = NULL;
+    cf_warn_list_t w;
+    size_t ptr_off, i;
+
+    cf_warn_list_init(&w);
+    buf_init(&m);
+    put_header(&m, 0x8002, 0x01, 0x00, 2, 0, 0, 0); /* qd=2 */
+    /* Question 0: a valid 63-byte 'q' label. build_question decodes it into the
+     * same stack `name[512]` buffer that question 1 reuses, so if the failure
+     * path forgets to terminate, question 1's short partial would trail into
+     * these 'q' bytes -- making the bug deterministically observable. */
+    put_u8(&m, 63);
+    for (i = 0; i < 63; i++)
+        put_u8(&m, 'q');
+    put_u8(&m, 0);   /* root terminator */
+    put_be16(&m, 1); /* qtype */
+    put_be16(&m, 1); /* qclass */
+    /* Question 1: "ns" then a compression pointer pointing at itself (rejected
+     * as a non-backward pointer). consumed>0 so best partial "ns" is emitted. */
+    put_u8(&m, 2);
+    put_bytes(&m, (const uint8_t *)"ns", 2);
+    ptr_off = m.n;
+    put_ptr(&m, ptr_off); /* points at itself -> not strictly backward */
+    put_be16(&m, 1);      /* qtype (read at name_start+consumed) */
+    put_be16(&m, 1);      /* qclass */
+
+    CU_ASSERT_EQUAL_FATAL(cf_dns_parse(m.b, m.n, &msg, &w), 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(msg);
+    CU_ASSERT_EQUAL_FATAL(msg->n_questions, 2);
+    /* Best partial is exactly "ns" -- no trailing garbage from the primed buffer. */
+    CU_ASSERT_STRING_EQUAL(msg->questions[1]->qname, "ns");
+    CU_ASSERT_EQUAL(strlen(msg->questions[1]->qname), 2);
+    CU_ASSERT_TRUE(drain_warnings(&w) >= 1);
+
+    cloudflow__v1__dns_message__free_unpacked(msg, NULL);
+}
+
+/* Case: a reserved (0x40/0x80) label type. An answer name is "x" followed by a
+ * pointer back to a 0x40 gadget byte that lives in the question's label data;
+ * the jump lands on the reserved type and is rejected. Best partial "x" must
+ * be surfaced NUL-terminated as the answer name. */
+static void test_name_reserved_label_partial(void)
+{
+    buf_t m;
+    Cloudflow__V1__DnsMessage *msg = NULL;
+    cf_warn_list_t w;
+    size_t gadget_off, i;
+    static const uint8_t a_rdata[4] = {192, 0, 2, 5};
+
+    cf_warn_list_init(&w);
+    buf_init(&m);
+    put_header(&m, 0x8003, 0x81, 0x80, 1, 2, 0, 0); /* qd=1, an=2 */
+    /* Question: a single 1-byte label whose content octet is 0x40. Valid as a
+     * question name; the 0x40 octet doubles as a reserved-label gadget. */
+    put_u8(&m, 1);
+    gadget_off = m.n;
+    put_u8(&m, 0x40);
+    put_u8(&m, 0);   /* root terminator */
+    put_be16(&m, 1); /* qtype A */
+    put_be16(&m, 1); /* qclass IN */
+    /* Answer 0: a valid 63-byte 'q' label. It primes the shared rr_hdr `name`
+     * stack buffer so answer 1's short partial would visibly trail into these
+     * 'q' bytes if the failure path forgot to terminate. */
+    put_u8(&m, 63);
+    for (i = 0; i < 63; i++)
+        put_u8(&m, 'q');
+    put_u8(&m, 0);      /* root terminator */
+    put_be16(&m, 1);    /* type A */
+    put_be16(&m, 1);    /* class IN */
+    put_be32(&m, 60);   /* ttl */
+    put_be16(&m, 4);    /* rdlength */
+    put_bytes(&m, a_rdata, 4);
+    /* Answer 1 name: label "x" then a pointer to the 0x40 reserved gadget. */
+    put_u8(&m, 1);
+    put_u8(&m, 'x');
+    put_ptr(&m, gadget_off);
+    put_be16(&m, 1);    /* type A */
+    put_be16(&m, 1);    /* class IN */
+    put_be32(&m, 60);   /* ttl */
+    put_be16(&m, 4);    /* rdlength */
+    put_bytes(&m, a_rdata, 4);
+
+    CU_ASSERT_EQUAL_FATAL(cf_dns_parse(m.b, m.n, &msg, &w), 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(msg);
+    CU_ASSERT_EQUAL_FATAL(msg->n_answers, 2);
+    /* Best partial is exactly "x" -- no trailing garbage from the primed buffer. */
+    CU_ASSERT_STRING_EQUAL(msg->answers[1]->name, "x");
+    CU_ASSERT_EQUAL(strlen(msg->answers[1]->name), 1);
+    CU_ASSERT_TRUE(msg->answers[1]->malformed);
+    CU_ASSERT_TRUE(drain_warnings(&w) >= 1);
+
+    cloudflow__v1__dns_message__free_unpacked(msg, NULL);
+}
+
+/* Case: a name that exceeds the RFC 1035 255-octet cap. Answer 1 carries the
+ * label chain as opaque RDATA of an unknown-type record; answer 2's name is
+ * "z" plus a pointer into that chain, so decode accumulates labels until the
+ * cap trips. The best partial (everything written before the cap) must be
+ * surfaced NUL-terminated with no trailing garbage. */
+static void test_name_octet_cap_partial(void)
+{
+    buf_t m;
+    Cloudflow__V1__DnsMessage *msg = NULL;
+    cf_warn_list_t w;
+    char expected[256];
+    size_t k = 0, i;
+    int lbl;
+    size_t chain_off;
+
+    cf_warn_list_init(&w);
+    buf_init(&m);
+    put_header(&m, 0x8004, 0x81, 0x80, 0, 2, 0, 0); /* qd=0, an=2 */
+
+    /* Answer 1: root name, unknown type (opaque RDATA), rdata = four 63-byte
+     * 'a' labels (no terminator needed; it is never parsed as a name here). */
+    put_u8(&m, 0);           /* root name */
+    put_be16(&m, 0xff00);    /* unknown type -> RDATA left opaque */
+    put_be16(&m, 1);         /* class IN */
+    put_be32(&m, 60);        /* ttl */
+    put_be16(&m, 4 * 64);    /* rdlength: 4 labels * (1 len + 63 bytes) */
+    chain_off = m.n;
+    for (lbl = 0; lbl < 4; lbl++) {
+        put_u8(&m, 63);
+        for (i = 0; i < 63; i++)
+            put_u8(&m, 'a');
+    }
+
+    /* Answer 2: name "z" + pointer into the label chain; the cap trips after
+     * "z" plus three 63-byte labels (2 + 3*64 = 194 <= 255; the fourth would
+     * reach 258 > 255). */
+    put_u8(&m, 1);
+    put_u8(&m, 'z');
+    put_ptr(&m, chain_off);
+    put_be16(&m, 0xff00);    /* type (unknown) */
+    put_be16(&m, 1);         /* class */
+    put_be32(&m, 60);        /* ttl */
+    put_be16(&m, 0);         /* rdlength 0 */
+
+    /* Expected best partial: "z" then three dot-joined 63-'a' labels. */
+    expected[k++] = 'z';
+    for (lbl = 0; lbl < 3; lbl++) {
+        expected[k++] = '.';
+        for (i = 0; i < 63; i++)
+            expected[k++] = 'a';
+    }
+    expected[k] = '\0';
+
+    CU_ASSERT_EQUAL_FATAL(cf_dns_parse(m.b, m.n, &msg, &w), 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(msg);
+    CU_ASSERT_EQUAL_FATAL(msg->n_answers, 2);
+    CU_ASSERT_STRING_EQUAL(msg->answers[1]->name, expected);
+    CU_ASSERT_EQUAL(strlen(msg->answers[1]->name), k);
+    CU_ASSERT_TRUE(msg->answers[1]->malformed);
+    CU_ASSERT_TRUE(drain_warnings(&w) >= 1);
+
+    cloudflow__v1__dns_message__free_unpacked(msg, NULL);
+}
+
 /* ---- cf_parse_util micro-test --------------------------------------------- */
 
 static void test_parse_util(void)
@@ -567,6 +786,10 @@ int main(void)
         !CU_add_test(suite, "truncated section counts", test_truncated_counts) ||
         !CU_add_test(suite, "sub-header message -> 0", test_too_short) ||
         !CU_add_test(suite, "never crashes: truncation + bit-flip sweep", test_never_crashes) ||
+        !CU_add_test(suite, "sec: name runs off end (no terminator)", test_name_runs_off_end) ||
+        !CU_add_test(suite, "sec: self-pointer surfaces NUL-term partial", test_name_self_pointer_partial) ||
+        !CU_add_test(suite, "sec: reserved label surfaces NUL-term partial", test_name_reserved_label_partial) ||
+        !CU_add_test(suite, "sec: 255-octet cap surfaces NUL-term partial", test_name_octet_cap_partial) ||
         !CU_add_test(suite, "cf_parse_util micro-test", test_parse_util)) {
         CU_cleanup_registry();
         return (int)CU_get_error();

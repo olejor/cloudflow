@@ -82,15 +82,27 @@ static void warn_bad_value(const char *section, const char *key, const char *val
  * pre-existing default in that case). */
 static int parse_u32(const char *s, uint32_t *out)
 {
+    const char *p;
     char *end = NULL;
     unsigned long v;
 
     if (!s || *s == '\0')
         return -1;
 
+    /* strtoul() silently accepts a leading '-' and wraps the negation into a
+     * huge unsigned value; reject any sign-prefixed input outright (after any
+     * leading whitespace strtoul would also skip). */
+    for (p = s; *p == ' ' || *p == '\t'; p++)
+        ;
+    if (*p == '-' || *p == '+')
+        return -1;
+
+    errno = 0;
     v = strtoul(s, &end, 10);
     if (end == s || *end != '\0')
-        return -1;
+        return -1;               /* empty or trailing non-numeric junk */
+    if (errno == ERANGE || v > UINT32_MAX)
+        return -1;               /* out of uint32_t range: would truncate */
 
     *out = (uint32_t)v;
     return 0;

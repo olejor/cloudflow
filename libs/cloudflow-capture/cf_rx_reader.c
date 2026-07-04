@@ -136,7 +136,12 @@ static void sample_kernel_stats(cf_rx_stats_t *stats, int fd, const cf_queue_t *
         return;
 
     if (getsockopt(fd, SOL_PACKET, PACKET_STATISTICS, &st, &len) == 0)
-        CF_ATOMIC_STORE(stats->packets_dropped_total, st.tp_drops);
+        /* getsockopt(PACKET_STATISTICS) resets the kernel counters on every
+         * read, so st.tp_drops is only the drops since the previous sample.
+         * Accumulate the delta so packets_dropped_total is a true running
+         * total (and the reporting thread's CF_ATOMIC_READ_AND_ZERO still
+         * yields correct per-interval values). */
+        CF_ATOMIC_ADD(stats->packets_dropped_total, st.tp_drops);
     else
         cf_log(CF_LOG_WARN, "getsockopt(PACKET_STATISTICS) failed", "error", strerror(errno), NULL);
 

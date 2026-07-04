@@ -421,6 +421,87 @@ static void test_poison_dead_lettered(void)
     redisFree(admin);
 }
 
+/* Stub delivery client (cf_sink_delivery_t): drives the real flush_hec /
+ * dead-letter / ack path without a live HEC endpoint. Reports item 0 as
+ * delivered (-> XACK), item 1 as poison (-> dead-letter then XACK) and leaves
+ * item 2 as neither (retryable-not-yet-delivered -> stays pending). */
+static int stub_send_batch(void *ctx, const cf_batch_item_t *items, size_t n, uint8_t *delivered,
+                           uint8_t *poison, char **poison_errs)
+{
+    size_t i;
+    (void)ctx;
+    (void)items;
+    for (i = 0; i < n; i++) {
+        delivered[i] = 0;
+        poison[i] = 0;
+        poison_errs[i] = NULL;
+    }
+    if (n > 0)
+        delivered[0] = 1;
+    if (n > 1) {
+        poison[1] = 1;
+        poison_errs[1] = strdup("stub poison: HTTP 400");
+    }
+    /* item 2 (if any) intentionally left neither delivered nor poison */
+    return 0;
+}
+
+static void test_delivery_mixed_ack(void)
+{
+    redisContext *admin = rconnect();
+    cf_sink_config_t cfg;
+    cf_stats_t stats;
+    cf_consumer_t consumer;
+    cf_sink_delivery_t delivery;
+    redisReply *r;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(admin);
+    flushall(admin);
+
+    /* three valid events -> the transform yields three batch items */
+    xadd_event(admin, g_payload, g_payload_len);
+    xadd_event(admin, g_payload, g_payload_len);
+    xadd_event(admin, g_payload, g_payload_len);
+
+    cf_stats_init(&stats);
+    make_cfg(&cfg, "splunk-01");
+    CU_ASSERT_EQUAL_FATAL(cf_consumer_init(&consumer, admin, &cfg, &stats), 0);
+    cf_consumer_set_transform(&consumer, test_transform, NULL);
+
+    delivery.ctx = NULL;
+    delivery.send_batch = stub_send_batch;
+    delivery.free = NULL;
+    cf_consumer_set_delivery(&consumer, &delivery);
+
+    cf_consumer_run_once(&consumer);
+
+    /* delivered -> acked, poison -> dead-lettered+acked, neither -> pending. */
+    CU_ASSERT_EQUAL(xpending_count(admin), 1);
+
+    /* exactly one dead-letter entry, reason=hec_rejected */
+    r = redisCommand(admin, "XRANGE %s - +", DEADLETTER);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(r);
+    CU_ASSERT_EQUAL(r->type, REDIS_REPLY_ARRAY);
+    CU_ASSERT_EQUAL(r->elements, 1u);
+    if (r->type == REDIS_REPLY_ARRAY && r->elements == 1) {
+        redisReply *fields = r->element[0]->element[1];
+        const char *reason = NULL;
+        size_t i;
+        for (i = 0; i + 1 < fields->elements; i += 2) {
+            if (strcmp(fields->element[i]->str, "reason") == 0)
+                reason = fields->element[i + 1]->str;
+        }
+        CU_ASSERT_PTR_NOT_NULL(reason);
+        if (reason)
+            CU_ASSERT_STRING_EQUAL(reason, "hec_rejected");
+    }
+    if (r)
+        freeReplyObject(r);
+
+    cf_consumer_free(&consumer);
+    redisFree(admin);
+}
+
 int main(void)
 {
     CU_pSuite suite;
@@ -450,7 +531,8 @@ int main(void)
     if (!suite ||
         !CU_add_test(suite, "100 events processed and acked", test_100_events) ||
         !CU_add_test(suite, "XAUTOCLAIM redelivers a crashed consumer's pending", test_xautoclaim_redelivery) ||
-        !CU_add_test(suite, "poison entry dead-lettered (decode_error) and acked", test_poison_dead_lettered)) {
+        !CU_add_test(suite, "poison entry dead-lettered (decode_error) and acked", test_poison_dead_lettered) ||
+        !CU_add_test(suite, "delivery path: delivered->ack, poison->deadletter+ack, neither->pending", test_delivery_mixed_ack)) {
         CU_cleanup_registry();
         stop_redis();
         return (int)CU_get_error();

@@ -14,6 +14,18 @@
 #define REQUIRED_ENCODING "protobuf"
 #define REQUIRED_SCHEMA "cloudflow.v1.CloudFlowEvent"
 
+/* Redis reconnect tuning (mirrors cloudflow-redis' connect_with_backoff:
+ * 3s connect timeout, 100ms backoff doubling to a 5s cap, interruptible in
+ * 50ms slices so shutdown is never blocked by an in-progress backoff). */
+#define CF_CONSUMER_CONNECT_TIMEOUT_SEC 3
+#define CF_CONSUMER_RECONNECT_BACKOFF_INITIAL_NS (100LL * 1000 * 1000)
+#define CF_CONSUMER_RECONNECT_BACKOFF_MAX_NS (5000LL * 1000 * 1000)
+#define CF_CONSUMER_RECONNECT_SLEEP_CHUNK_NS (50LL * 1000 * 1000)
+
+/* redis_stream_lag is a gauge; sample it on the same 10s cadence the stats
+ * line is emitted on rather than on every read. */
+#define CF_CONSUMER_LAG_SAMPLE_INTERVAL_NS (10000LL * 1000 * 1000)
+
 /* ---- byte accumulator --------------------------------------------------- */
 
 int cf_sink_buf_append(cf_sink_buf_t *b, const char *s, size_t n)
@@ -63,6 +75,7 @@ int cf_consumer_init(cf_consumer_t *c, redisContext *ctx, const cf_sink_config_t
     c->stdout_stream = stdout;
     c->min_idle_ms = CF_CONSUMER_DEFAULT_MIN_IDLE_MS;
     c->last_flush_mono_ns = cf_now_mono_nano();
+    c->last_lag_sample_mono_ns = c->last_flush_mono_ns;
 
     c->autoclaim_cursors = calloc(cfg->redis.stream_count, sizeof(char *));
     if (!c->autoclaim_cursors)
@@ -475,6 +488,165 @@ static int read_new(cf_consumer_t *c, long block_ms)
     return processed;
 }
 
+/* ---- reconnect ---------------------------------------------------------- */
+
+/* A dropped connection leaves the redisContext flagged (ctx->err) and makes
+ * every subsequent command return NULL; without a rebuild the run loop would
+ * busy-spin forever (XREADGROUP stops BLOCKing). */
+static int connection_dead(const cf_consumer_t *c)
+{
+    return c->ctx == NULL || c->ctx->err != 0;
+}
+
+/* Connect to a single "host:port" endpoint with a bounded timeout. Returns a
+ * healthy context or NULL. Mirrors cf_sink_run.c's endpoint parsing. */
+static redisContext *connect_endpoint(const char *ep)
+{
+    const char *colon = strrchr(ep, ':');
+    char host[256];
+    int port;
+    size_t hlen;
+    struct timeval tv;
+    redisContext *ctx;
+
+    if (!colon || colon == ep)
+        return NULL;
+    hlen = (size_t)(colon - ep);
+    if (hlen >= sizeof(host))
+        return NULL;
+    memcpy(host, ep, hlen);
+    host[hlen] = '\0';
+    port = atoi(colon + 1);
+    if (port <= 0 || port > 65535)
+        return NULL;
+
+    tv.tv_sec = CF_CONSUMER_CONNECT_TIMEOUT_SEC;
+    tv.tv_usec = 0;
+    ctx = redisConnectWithTimeout(host, port, tv);
+    if (ctx && !ctx->err)
+        return ctx;
+    if (ctx)
+        redisFree(ctx);
+    return NULL;
+}
+
+/* Interruptible backoff sleep: honors a stop request between 50ms slices so
+ * shutdown is never blocked waiting out the backoff. */
+static void reconnect_sleep(int64_t backoff_ns)
+{
+    int64_t remaining = backoff_ns;
+    while (remaining > 0) {
+        int64_t chunk;
+        if (cf_stop_notified())
+            return;
+        chunk = remaining < CF_CONSUMER_RECONNECT_SLEEP_CHUNK_NS
+                    ? remaining
+                    : CF_CONSUMER_RECONNECT_SLEEP_CHUNK_NS;
+        cf_sleep_ns(chunk);
+        remaining -= chunk;
+    }
+}
+
+/* Rebuild a dead redis context with backoff over the configured endpoint list
+ * (mirrors cloudflow-redis' connect_with_backoff), then re-create the consumer
+ * groups on the fresh connection. The in-memory batch and pending entries are
+ * left untouched: un-acked entries stay pending in the group and are flushed /
+ * acked after reconnect (at-least-once). Returns 0 once reconnected, -1 if a
+ * stop was requested before any endpoint came back. */
+static int reconnect_redis(cf_consumer_t *c)
+{
+    int64_t backoff_ns = CF_CONSUMER_RECONNECT_BACKOFF_INITIAL_NS;
+    size_t idx = 0;
+
+    if (c->ctx) {
+        redisFree(c->ctx);
+        c->ctx = NULL;
+    }
+    cf_log(CF_LOG_WARN, "redis connection lost, reconnecting", NULL);
+
+    while (!cf_stop_notified()) {
+        size_t tries;
+        for (tries = 0; tries < c->cfg->redis.endpoint_count; tries++) {
+            const char *ep = c->cfg->redis.endpoints[(idx++) % c->cfg->redis.endpoint_count];
+            redisContext *ctx = connect_endpoint(ep);
+            if (!ctx)
+                continue;
+            c->ctx = ctx;
+            if (cf_consumer_ensure_groups(c) != 0) {
+                /* Group re-create failed (e.g. the fresh context died again):
+                 * tear it down and keep retrying. */
+                redisFree(c->ctx);
+                c->ctx = NULL;
+                continue;
+            }
+            cf_log(CF_LOG_INFO, "redis reconnected", NULL);
+            return 0;
+        }
+        reconnect_sleep(backoff_ns);
+        backoff_ns *= 2;
+        if (backoff_ns > CF_CONSUMER_RECONNECT_BACKOFF_MAX_NS)
+            backoff_ns = CF_CONSUMER_RECONNECT_BACKOFF_MAX_NS;
+    }
+    return -1;
+}
+
+/* ---- stream lag gauge --------------------------------------------------- */
+
+/* Best-effort: sum, across the configured streams, this sink's consumer
+ * group's XINFO GROUPS `lag` (entries generated but not yet delivered to the
+ * group). A failed / unavailable XINFO for a stream just skips that stream's
+ * contribution; the sample is stored only if at least one stream reported a
+ * numeric lag, so a total outage leaves the prior gauge value untouched and
+ * never blocks delivery. */
+static void sample_stream_lag(cf_consumer_t *c)
+{
+    unsigned long total = 0;
+    int have_sample = 0;
+    size_t si;
+
+    if (connection_dead(c))
+        return;
+
+    for (si = 0; si < c->cfg->redis.stream_count; si++) {
+        redisReply *r = redisCommand(c->ctx, "XINFO GROUPS %s", c->cfg->redis.streams[si]);
+        size_t gi;
+
+        if (!r)
+            return; /* context just died; reconnect handles it next iteration */
+        if (r->type != REDIS_REPLY_ARRAY) {
+            freeReplyObject(r);
+            continue;
+        }
+        for (gi = 0; gi < r->elements; gi++) {
+            const redisReply *group = r->element[gi];
+            const redisReply *name = field_get(group, "name");
+            const redisReply *lag;
+
+            if (!name || name->type != REDIS_REPLY_STRING ||
+                strcmp(name->str, c->cfg->redis.consumer_group) != 0)
+                continue;
+            lag = field_get(group, "lag");
+            if (lag && lag->type == REDIS_REPLY_INTEGER && lag->integer >= 0) {
+                total += (unsigned long)lag->integer;
+                have_sample = 1;
+            }
+        }
+        freeReplyObject(r);
+    }
+
+    if (have_sample)
+        CF_ATOMIC_STORE(c->stats->redis_stream_lag, total);
+}
+
+static void maybe_sample_stream_lag(cf_consumer_t *c)
+{
+    int64_t now = cf_now_mono_nano();
+    if (now - c->last_lag_sample_mono_ns < CF_CONSUMER_LAG_SAMPLE_INTERVAL_NS)
+        return;
+    c->last_lag_sample_mono_ns = now;
+    sample_stream_lag(c);
+}
+
 int cf_consumer_run_once(cf_consumer_t *c)
 {
     if (cf_consumer_ensure_groups(c) != 0)
@@ -496,12 +668,17 @@ int cf_consumer_run_forever(cf_consumer_t *c)
     if (cf_consumer_ensure_groups(c) != 0)
         return -1;
     while (!cf_stop_notified()) {
+        if (connection_dead(c)) {
+            if (reconnect_redis(c) != 0)
+                break; /* stop requested during reconnect */
+        }
         reclaim_all(c);
         maybe_flush(c);
         if (cf_stop_notified())
             break;
         read_new(c, c->cfg->redis.block_ms);
         maybe_flush(c);
+        maybe_sample_stream_lag(c);
         cf_stats_maybe_emit(c->stats, 10000);
     }
     /* Shutdown: flush the in-flight batch once, ack what succeeded, exit. */

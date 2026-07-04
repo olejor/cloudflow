@@ -6,11 +6,30 @@
 
 #include "cf_log.h"
 #include "cf_stats.h"
+#include "cf_sync.h"
 #include "cf_time.h"
 
 #define CF_DELIVER_BACKOFF_INITIAL_S 1.0
 #define CF_DELIVER_BACKOFF_MAX_S 30.0
 #define CF_DELIVER_BODY_PREFIX_MAX 200
+/* Slice the backoff sleep so a stop signalled mid-sleep is honored promptly
+ * instead of blocking for up to the full 30s cap. */
+#define CF_DELIVER_SLEEP_SLICE_S 0.05
+
+/* Process-wide stop check for the retry loop; defaults to cf_stop_notified().
+ * Only touched by cf_sink_http_deliver_set_stop_fn (a test seam) -- production
+ * leaves it at the default, so behavior is identical to before. */
+static cf_deliver_stop_fn g_stop_fn = cf_stop_notified;
+
+void cf_sink_http_deliver_set_stop_fn(cf_deliver_stop_fn fn)
+{
+    g_stop_fn = fn ? fn : cf_stop_notified;
+}
+
+static int deliver_should_stop(void)
+{
+    return g_stop_fn ? g_stop_fn() : 0;
+}
 
 static void default_sleep(double seconds, void *ctx)
 {
@@ -51,6 +70,25 @@ typedef struct {
     cf_stats_t *stats;
 } deliver_ctx_t;
 
+/* Backoff sleep that bails as soon as a stop is requested: it sleeps in small
+ * slices, checking the stop flag between them, so a shutdown never has to wait
+ * out the full (up to 30s) backoff. Preserves the total backoff duration when
+ * no stop is pending. */
+static void deliver_sleep(deliver_ctx_t *d, double seconds)
+{
+    double remaining = seconds;
+
+    while (remaining > 0.0) {
+        double chunk;
+
+        if (deliver_should_stop())
+            return;
+        chunk = remaining < CF_DELIVER_SLEEP_SLICE_S ? remaining : CF_DELIVER_SLEEP_SLICE_S;
+        d->sleep_fn(chunk, d->sleep_ctx);
+        remaining -= chunk;
+    }
+}
+
 /* Recursively delivers items[lo..lo+count). Mirrors the retry/bisection policy
  * that used to live in cf_sink_hec.c's send_range verbatim. */
 static void send_range(deliver_ctx_t *d, const cf_batch_item_t *items, size_t lo, size_t count,
@@ -67,11 +105,17 @@ static void send_range(deliver_ctx_t *d, const cf_batch_item_t *items, size_t lo
         return;
 
     for (;;) {
+        /* Shutdown-aware: on stop, abandon the (otherwise indefinite) retry
+         * and return leaving items[lo..lo+count) neither delivered nor poison
+         * so the consumer leaves them pending/unacked (at-least-once). */
+        if (deliver_should_stop())
+            return;
+
         body = build_body(items, lo, count, &body_len);
         if (!body) {
             /* Out of memory building the body: treat as retryable. */
             CF_ATOMIC_INC(d->stats->splunk_retry_total);
-            d->sleep_fn(backoff, d->sleep_ctx);
+            deliver_sleep(d, backoff);
             backoff = backoff * 2 > CF_DELIVER_BACKOFF_MAX_S ? CF_DELIVER_BACKOFF_MAX_S
                                                              : backoff * 2;
             continue;
@@ -96,7 +140,7 @@ static void send_range(deliver_ctx_t *d, const cf_batch_item_t *items, size_t lo
         if (status <= 0 || status == 429 || status >= 500) {
             CF_ATOMIC_INC(d->stats->splunk_retry_total);
             CF_ATOMIC_INC(d->stats->splunk_delivery_errors_total);
-            d->sleep_fn(backoff, d->sleep_ctx);
+            deliver_sleep(d, backoff);
             backoff = backoff * 2 > CF_DELIVER_BACKOFF_MAX_S ? CF_DELIVER_BACKOFF_MAX_S
                                                              : backoff * 2;
             continue;

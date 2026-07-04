@@ -599,6 +599,107 @@ static void test_non_dns_frame_skipped(void)
     cf_queue_destroy(&out);
 }
 
+/* Feeds `n` distinct lone responses (each with no pending query -> unmatched)
+ * through the stage, draining and freeing the events they emit. */
+static void feed_unmatched(dns_stage_t *stage, cf_queue_t *out, uint16_t base_id,
+                           uint16_t n, int64_t t)
+{
+    cf_packet_item_t r;
+    Cloudflow__V1__CloudFlowEvent *ev;
+    uint16_t i;
+
+    for (i = 0; i < n; i++) {
+        make_dns_pkt(&r, (uint16_t)(base_id + i), 1, (uint16_t)(50000 + i),
+                     1 /*A*/, 0, 0, t + (int64_t)i * 1000);
+        CU_ASSERT_EQUAL(dns_stage_process_packet(stage, &r), 0);
+    }
+    while ((ev = pop_event(out)) != NULL)
+        cloudflow__v1__cloud_flow_event__free_unpacked(ev, NULL);
+}
+
+/* Feeds `n` distinct lone queries, then ticks past the timeout so every one is
+ * evicted as unanswered; drains and frees the emitted events. */
+static void feed_unanswered(dns_stage_t *stage, cf_queue_t *out, uint16_t base_id,
+                            uint16_t n, int64_t t)
+{
+    cf_packet_item_t q;
+    Cloudflow__V1__CloudFlowEvent *ev;
+    uint16_t i;
+
+    for (i = 0; i < n; i++) {
+        make_dns_pkt(&q, (uint16_t)(base_id + i), 0, (uint16_t)(41000 + i),
+                     1 /*A*/, 0, 0, t + (int64_t)i * 1000);
+        CU_ASSERT_EQUAL(dns_stage_process_packet(stage, &q), 0);
+    }
+    dns_stage_tick(stage, t + (int64_t)n * 1000 + TIMEOUT_NS + 1);
+    while ((ev = pop_event(out)) != NULL)
+        cloudflow__v1__cloud_flow_event__free_unpacked(ev, NULL);
+}
+
+/* Loss counters (dns_query_unanswered_total, dns_response_unmatched_total, ...)
+ * must honor stats.reset_on_report exactly like every other counter: read with
+ * CF_ATOMIC_READ_AND_ZERO (the reset path), each report yields ONLY the delta
+ * since the last report -- NOT the correlator's running cumulative. The stage
+ * ADDs per-sync deltas so this holds; the earlier STORE-of-cumulative bug made
+ * the second interval re-report all prior counts. */
+static void test_reset_on_report_loss_counters_per_interval(void)
+{
+    cf_queue_t out;
+    cf_dns_source_stats_t stats;
+    dns_stage_config_t cfg;
+    dns_stage_t *stage;
+
+    memset(&stats, 0, sizeof(stats));
+    CU_ASSERT_EQUAL_FATAL(cf_queue_init(&out, 64, sizeof(cf_event_item_t)), 0);
+    cfg = make_cfg(&out, &stats, CF_DNS_EMIT_ALL, 0);
+    stage = dns_stage_new(&cfg);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stage);
+
+    /* Interval 1: 2 unmatched + 1 unanswered. */
+    feed_unmatched(stage, &out, 200, 2, 1000000);
+    feed_unanswered(stage, &out, 300, 1, 2000000);
+
+    CU_ASSERT_EQUAL(CF_ATOMIC_READ_AND_ZERO(stats.dns_response_unmatched_total), 2);
+    CU_ASSERT_EQUAL(CF_ATOMIC_READ_AND_ZERO(stats.dns_query_unanswered_total), 1);
+
+    /* Interval 2: 1 unmatched + 2 unanswered. A correct per-interval report
+     * sees ONLY these; the cumulative totals are now 3 and 3 respectively. */
+    feed_unmatched(stage, &out, 400, 1, 3000000);
+    feed_unanswered(stage, &out, 500, 2, 4000000);
+
+    CU_ASSERT_EQUAL(CF_ATOMIC_READ_AND_ZERO(stats.dns_response_unmatched_total), 1);
+    CU_ASSERT_EQUAL(CF_ATOMIC_READ_AND_ZERO(stats.dns_query_unanswered_total), 2);
+
+    dns_stage_free(stage);
+    /* Draining pending at teardown: none left (all queries already evicted). */
+    cf_queue_destroy(&out);
+}
+
+/* Without reset_on_report the same counters are read with plain CF_ATOMIC_READ
+ * and accumulate across intervals -- the delta-ADD scheme keeps that correct. */
+static void test_no_reset_loss_counters_cumulative(void)
+{
+    cf_queue_t out;
+    cf_dns_source_stats_t stats;
+    dns_stage_config_t cfg;
+    dns_stage_t *stage;
+
+    memset(&stats, 0, sizeof(stats));
+    CU_ASSERT_EQUAL_FATAL(cf_queue_init(&out, 64, sizeof(cf_event_item_t)), 0);
+    cfg = make_cfg(&out, &stats, CF_DNS_EMIT_ALL, 0);
+    stage = dns_stage_new(&cfg);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stage);
+
+    feed_unmatched(stage, &out, 600, 2, 1000000);
+    CU_ASSERT_EQUAL(CF_ATOMIC_READ(stats.dns_response_unmatched_total), 2); /* cumulative */
+
+    feed_unmatched(stage, &out, 700, 3, 2000000);
+    CU_ASSERT_EQUAL(CF_ATOMIC_READ(stats.dns_response_unmatched_total), 5); /* 2 + 3 */
+
+    dns_stage_free(stage);
+    cf_queue_destroy(&out);
+}
+
 /* ---- driver ---------------------------------------------------------------- */
 
 int main(void)
@@ -622,7 +723,11 @@ int main(void)
         !CU_add_test(suite, "lone response -> unmatched", test_unmatched_response) ||
         !CU_add_test(suite, "tcp query+response -> observed (prefix stripped)", test_tcp_pair_prefix_stripped) ||
         !CU_add_test(suite, "sampling drops routine, always emits anomalies", test_sampling_routine_vs_anomaly) ||
-        !CU_add_test(suite, "non-DNS/unparseable frame skipped", test_non_dns_frame_skipped)) {
+        !CU_add_test(suite, "non-DNS/unparseable frame skipped", test_non_dns_frame_skipped) ||
+        !CU_add_test(suite, "loss counters honor reset_on_report (per-interval deltas)",
+                     test_reset_on_report_loss_counters_per_interval) ||
+        !CU_add_test(suite, "loss counters cumulative without reset_on_report",
+                     test_no_reset_loss_counters_cumulative)) {
         CU_cleanup_registry();
         return (int)CU_get_error();
     }

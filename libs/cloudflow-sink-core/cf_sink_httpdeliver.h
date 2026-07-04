@@ -33,6 +33,16 @@ typedef long (*cf_post_once_fn)(void *ctx, const uint8_t *body, size_t len, char
 /* Backoff sleep injection (seconds); NULL sleeps for real. */
 typedef void (*cf_deliver_sleep_fn)(double seconds, void *ctx);
 
+/* Stop check consulted by the retry loop so an otherwise-indefinite retry
+ * (network error / 429 / 5xx / OOM) stops promptly on shutdown. Returns
+ * non-zero once the process should stop. Defaults to cf_stop_notified()
+ * (cloudflow-core, cf_sync.h); on stop the un-delivered items are left NOT
+ * delivered and NOT poison, so the caller leaves them pending/unacked (the
+ * at-least-once contract). This is a process-wide test seam; passing NULL
+ * restores the cf_stop_notified() default. */
+typedef int (*cf_deliver_stop_fn)(void);
+void cf_sink_http_deliver_set_stop_fn(cf_deliver_stop_fn fn);
+
 /* Delivers `items` over `post_once` with the retry/bisection policy above.
  * delivered/poison/poison_errs are (re)initialized here: on return
  * delivered[i]==1 for items that got a 2xx and poison[i]==1 for items to be

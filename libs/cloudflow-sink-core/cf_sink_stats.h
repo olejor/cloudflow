@@ -19,6 +19,13 @@ typedef struct {
     atomic_ulong protobuf_decode_errors_total;
     atomic_ulong splunk_batch_size_last;
     atomic_ulong splunk_delivery_latency_ms_last;
+    /* Consumer-group backlog gauge (docs/splunk-output.md, docs/failure-modes.md):
+     * total stream entries generated but not yet delivered to this sink's
+     * consumer group, summed across the configured input streams (per-stream
+     * XINFO GROUPS `lag`: stream last-generated-id vs. the group's
+     * last-delivered-id). Best-effort, sampled on the stats cadence; a failed
+     * XINFO just skips the sample and leaves the prior value. */
+    atomic_ulong redis_stream_lag;
     int64_t last_emit_mono_ns;
 } cf_stats_t;
 

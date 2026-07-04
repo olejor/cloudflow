@@ -77,6 +77,7 @@ typedef struct {
     size_t batch_len;
     size_t batch_cap;
     int64_t last_flush_mono_ns;
+    int64_t last_lag_sample_mono_ns; /* redis_stream_lag sampling cadence */
 
     char **autoclaim_cursors; /* one per configured stream */
 } cf_consumer_t;
