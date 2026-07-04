@@ -24,6 +24,7 @@
 
 #include "cf_sink_config.h"
 #include "cf_sink_hec.h"
+#include "cf_sink_httpdeliver.h"
 #include "cf_sink_stats.h"
 
 #define TOKEN "SUPER-SECRET-HEC-TOKEN-DO-NOT-LOG"
@@ -309,23 +310,75 @@ static void test_token_never_logged(void)
     stop_stub(stub);
 }
 
+/* ---- shutdown-aware retry (no stub server needed) ----------------------- */
+
+/* post-once primitive that always returns a retryable 5xx: without the stop
+ * check the retry loop would back off and retry forever. */
+static long post_always_503(void *ctx, const uint8_t *body, size_t len, char *errbuf, size_t errcap)
+{
+    (void)ctx;
+    (void)body;
+    (void)len;
+    if (errbuf && errcap)
+        snprintf(errbuf, errcap, "service unavailable");
+    return 503;
+}
+
+static int always_stop(void)
+{
+    return 1;
+}
+
+/* With the stop flag set, the (otherwise indefinite) retry loop must return
+ * promptly leaving the item neither delivered nor poison, so the consumer
+ * leaves it pending/unacked (the at-least-once contract on SIGTERM). */
+static void test_shutdown_aware_retry(void)
+{
+    cf_stats_t stats;
+    cf_batch_item_t item;
+    uint8_t delivered[1], poison[1];
+    char *poison_errs[1];
+
+    cf_stats_init(&stats);
+    memset(&item, 0, sizeof(item));
+    item.stream = "s";
+    item.entry_id = "1-0";
+    item.line = "{\"event\":\"e0\"}";
+
+    cf_sink_http_deliver_set_stop_fn(always_stop);
+    cf_sink_http_deliver_batched(post_always_503, NULL, &item, 1, delivered, poison, poison_errs,
+                                 no_sleep, NULL, &stats);
+    cf_sink_http_deliver_set_stop_fn(NULL); /* restore cf_stop_notified default */
+
+    CU_ASSERT_EQUAL(delivered[0], 0);
+    CU_ASSERT_EQUAL(poison[0], 0);
+    free(poison_errs[0]); /* NULL on the not-delivered/not-poison path; safe */
+}
+
 int main(void)
 {
     CU_pSuite suite;
     unsigned int failed;
 
-    if (!python_available()) {
-        printf("SKIP: python3 not found -- skipping HEC stub suite\n");
-        return 0;
-    }
-
     if (CU_initialize_registry() != CUE_SUCCESS)
         return (int)CU_get_error();
     suite = CU_add_suite("hec", NULL, NULL);
-    if (!suite ||
-        !CU_add_test(suite, "5xx then 2xx retried and delivered once", test_5xx_then_2xx) ||
-        !CU_add_test(suite, "400 batch bisected: poison isolated, rest delivered", test_bisect_poison) ||
-        !CU_add_test(suite, "token sent on wire but never logged", test_token_never_logged)) {
+    if (!suite)
+        return (int)CU_get_error();
+
+    /* Runs regardless of python: it drives the retry helper directly. */
+    if (!CU_add_test(suite, "shutdown-aware retry returns promptly when stop is set",
+                     test_shutdown_aware_retry)) {
+        CU_cleanup_registry();
+        return (int)CU_get_error();
+    }
+
+    if (!python_available()) {
+        printf("SKIP: python3 not found -- skipping HEC stub tests\n");
+    } else if (!CU_add_test(suite, "5xx then 2xx retried and delivered once", test_5xx_then_2xx) ||
+               !CU_add_test(suite, "400 batch bisected: poison isolated, rest delivered",
+                            test_bisect_poison) ||
+               !CU_add_test(suite, "token sent on wire but never logged", test_token_never_logged)) {
         CU_cleanup_registry();
         return (int)CU_get_error();
     }
