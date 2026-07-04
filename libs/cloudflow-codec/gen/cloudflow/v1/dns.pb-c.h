@@ -90,12 +90,18 @@ struct  Cloudflow__V1__DnsTransactionEvent
   char *client_ip;
   uint32_t client_port;
   char *server_ip;
+  /*
+   * Operator-assigned service role -- e.g. dnsdist/recursor/authoritative --
+   * from config, keyed on the server-side address; empty if unmapped. Purely
+   * an operator label; it does not change the leg `role` above (DNS-D7).
+   */
+  char *service_role;
   size_t n_parser_warnings;
   Cloudflow__V1__ParserWarning **parser_warnings;
 };
 #define CLOUDFLOW__V1__DNS_TRANSACTION_EVENT__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&cloudflow__v1__dns_transaction_event__descriptor) \
-    , NULL, NULL, NULL, NULL, CLOUDFLOW__V1__DNS_LEG__DNS_LEG_UNSPECIFIED, 0, 0, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, 0, (char *)protobuf_c_empty_string, 0,NULL }
+    , NULL, NULL, NULL, NULL, CLOUDFLOW__V1__DNS_LEG__DNS_LEG_UNSPECIFIED, 0, 0, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, 0, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, 0,NULL }
 
 
 /*

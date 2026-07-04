@@ -234,6 +234,8 @@ static void set_defaults(cf_dns_config_t *cfg)
     cfg->dns_backend_address_count = 0;
     cfg->dns_emit_mode = CF_DNS_EMIT_ALL;
     cfg->dns_sample_denominator = CF_CFG_DEFAULT_SAMPLE_DENOMINATOR;
+    cfg->dns_service_roles = NULL;
+    cfg->dns_service_role_count = 0;
 
     cfg->stats_interval_s = CF_CFG_DEFAULT_STATS_INTERVAL_S;
     cfg->stats_reset_on_report = CF_CFG_DEFAULT_STATS_RESET_ON_REPORT;
@@ -413,6 +415,116 @@ static void parse_str_list(yaml_document_t *doc, yaml_node_t *node, const char *
     *count_out = i;
 }
 
+/* Frees a service-role group array and everything it owns. */
+static void free_service_roles(cf_dns_service_role_t *roles, size_t count)
+{
+    size_t i;
+
+    for (i = 0; i < count; i++) {
+        free_str_list(roles[i].addresses, roles[i].address_count);
+        free(roles[i].label);
+    }
+    free(roles);
+}
+
+/* Parses a `dns.service_roles` YAML sequence (WP-DNS11a): a list of mappings,
+ * each with `addresses: [ip, ...]` and `label: <string>`. Malformed entries (a
+ * non-mapping, a missing/empty label, or no usable addresses) are logged and
+ * skipped -- never fatal. Replaces (*roles_out, *count_out). */
+static void parse_service_roles(yaml_document_t *doc, yaml_node_t *node,
+                                cf_dns_service_role_t **roles_out, size_t *count_out)
+{
+    yaml_node_item_t *item;
+    size_t cap;
+    cf_dns_service_role_t *roles;
+    size_t count = 0;
+
+    if (!node || node->type != YAML_SEQUENCE_NODE) {
+        cf_log(CF_LOG_WARN, "config: dns.service_roles is not a list, keeping default", NULL);
+        return;
+    }
+
+    cap = (size_t)(node->data.sequence.items.top - node->data.sequence.items.start);
+    if (cap == 0) {
+        /* An explicit empty list clears the map (no service roles). */
+        free_service_roles(*roles_out, *count_out);
+        *roles_out = NULL;
+        *count_out = 0;
+        return;
+    }
+
+    roles = calloc(cap, sizeof(*roles));
+    if (!roles) {
+        cf_log(CF_LOG_ERROR, "config: out of memory", NULL);
+        exit(1);
+    }
+
+    for (item = node->data.sequence.items.start; item < node->data.sequence.items.top; item++) {
+        yaml_node_t *entry = yaml_document_get_node(doc, *item);
+        yaml_node_pair_t *pair;
+        yaml_node_t *addrs_node = NULL;
+        const char *label = NULL;
+        char **addresses = NULL;
+        size_t address_count = 0;
+
+        if (!entry || entry->type != YAML_MAPPING_NODE) {
+            cf_log(CF_LOG_WARN,
+                   "config: dns.service_roles entry is not a mapping, skipping", NULL);
+            continue;
+        }
+
+        for (pair = entry->data.mapping.pairs.start; pair < entry->data.mapping.pairs.top;
+             pair++) {
+            yaml_node_t *key = yaml_document_get_node(doc, pair->key);
+            yaml_node_t *val = yaml_document_get_node(doc, pair->value);
+            const char *k = node_scalar(key);
+
+            if (!k)
+                continue;
+            if (strcmp(k, "addresses") == 0)
+                addrs_node = val;
+            else if (strcmp(k, "label") == 0)
+                label = node_scalar(val);
+            else
+                warn_unknown_key("dns.service_roles", k);
+        }
+
+        if (!label || label[0] == '\0') {
+            cf_log(CF_LOG_WARN,
+                   "config: dns.service_roles entry has no 'label', skipping", NULL);
+            continue;
+        }
+
+        /* parse_str_list clears+replaces the (NULL, 0) target with the parsed
+         * scalar list, or keeps it (NULL) on a non-sequence node. */
+        parse_str_list(doc, addrs_node, "dns.service_roles.addresses", &addresses,
+                       &address_count);
+        if (address_count == 0) {
+            cf_log(CF_LOG_WARN,
+                   "config: dns.service_roles entry has no usable 'addresses', skipping",
+                   "label", label, NULL);
+            free_str_list(addresses, address_count);
+            continue;
+        }
+
+        roles[count].addresses = addresses;
+        roles[count].address_count = address_count;
+        roles[count].label = cfg_strdup(label);
+        count++;
+    }
+
+    if (count == 0) {
+        free_service_roles(roles, 0);
+        cf_log(CF_LOG_WARN,
+               "config: dns.service_roles had no usable entries, keeping default", NULL);
+        return;
+    }
+
+    free_service_roles(*roles_out, *count_out);
+    *roles_out = roles;
+    *count_out = count;
+}
+
 static void parse_redis_section(yaml_document_t *doc, yaml_node_t *node, cf_dns_config_t *cfg)
 {
     yaml_node_pair_t *pair;
@@ -524,6 +636,9 @@ static void parse_dns_section(yaml_document_t *doc, yaml_node_t *node, cf_dns_co
                 cfg->dns_sample_denominator = parsed;
             else
                 warn_bad_value("dns", "sample_denominator", v);
+        } else if (strcmp(k, "service_roles") == 0) {
+            parse_service_roles(doc, val, &cfg->dns_service_roles,
+                                &cfg->dns_service_role_count);
         } else {
             warn_unknown_key("dns", k);
         }
@@ -653,6 +768,7 @@ void cf_config_free(cf_dns_config_t *cfg)
 
     free_str_list(cfg->dns_local_service_addresses, cfg->dns_local_service_address_count);
     free_str_list(cfg->dns_backend_addresses, cfg->dns_backend_address_count);
+    free_service_roles(cfg->dns_service_roles, cfg->dns_service_role_count);
 
     free(cfg);
 }

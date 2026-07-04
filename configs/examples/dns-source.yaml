@@ -76,6 +76,22 @@ dns:
   emit_policy: all
   sample_denominator: 0
 
+  # Service roles (WP-DNS11a, a DNS-D7 extension). Tag each transaction with an
+  # operator-defined service role, keyed on the transaction's *server-side*
+  # address (the endpoint that owns :53). The label is arbitrary and does NOT
+  # change the leg `role` above -- it is an additional operator dimension a later
+  # change uses to route the Splunk sourcetype. A transaction whose server IP is
+  # unmapped (or whose server side is indeterminate) gets an empty service_role.
+  # Each entry is { addresses: [ip, ...], label: <string> }; malformed entries
+  # are logged and skipped. Omit the key for no roles (the default).
+  service_roles:
+    - addresses: [192.0.2.53]
+      label: dnsdist
+    - addresses: [192.0.2.54]
+      label: recursor
+    - addresses: [192.0.2.55]
+      label: authoritative
+
 stats:
   # Seconds between stats log lines.
   interval_s: 10

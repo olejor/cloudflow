@@ -119,6 +119,122 @@ int cf_dns_addr_set_contains(const cf_dns_addr_set_t *set, uint8_t ip_version,
     return 0;
 }
 
+/* ------------------------------------------------------------------------
+ * Address -> label role map (WP-DNS11a). Same flat, version-aware exact-match
+ * storage as cf_dns_addr_set, with an owned label string per entry. */
+
+typedef struct {
+    uint8_t ip_version; /* 4 or 6 */
+    uint8_t ip[16];
+    char   *label;      /* owned copy, never NULL/empty for a stored entry */
+} cf_dns_role_entry_t;
+
+struct cf_dns_role_map {
+    cf_dns_role_entry_t *entries;
+    size_t count;
+    size_t cap;
+};
+
+cf_dns_role_map_t *cf_dns_role_map_new(void)
+{
+    return calloc(1, sizeof(cf_dns_role_map_t));
+}
+
+void cf_dns_role_map_free(cf_dns_role_map_t *map)
+{
+    size_t i;
+
+    if (!map)
+        return;
+    for (i = 0; i < map->count; i++)
+        free(map->entries[i].label);
+    free(map->entries);
+    free(map);
+}
+
+/* Grows the backing array by doubling (starting at 8) when full. Returns 1 on
+ * success, 0 on allocation failure (the map is left unchanged). */
+static int cf_dns_role_map_reserve(cf_dns_role_map_t *map)
+{
+    size_t new_cap;
+    cf_dns_role_entry_t *grown;
+
+    if (map->count < map->cap)
+        return 1;
+
+    new_cap = map->cap ? map->cap * 2 : 8;
+    grown = realloc(map->entries, new_cap * sizeof(*grown));
+    if (!grown)
+        return 0;
+    map->entries = grown;
+    map->cap = new_cap;
+    return 1;
+}
+
+void cf_dns_role_map_add_ip(cf_dns_role_map_t *map, uint8_t ip_version,
+                            const uint8_t ip[16], const char *label)
+{
+    cf_dns_role_entry_t *e;
+    char *label_copy;
+
+    if (!map || (ip_version != 4 && ip_version != 6) || !label || label[0] == '\0')
+        return;
+    if (!cf_dns_role_map_reserve(map))
+        return;
+
+    label_copy = strdup(label);
+    if (!label_copy)
+        return;
+
+    e = &map->entries[map->count];
+    e->ip_version = ip_version;
+    memset(e->ip, 0, sizeof(e->ip));
+    memcpy(e->ip, ip, cf_dns_addr_width(ip_version));
+    e->label = label_copy;
+    map->count++;
+}
+
+int cf_dns_role_map_add_str(cf_dns_role_map_t *map, const char *ip, const char *label)
+{
+    uint8_t buf[16];
+
+    if (!map || !ip || !label || label[0] == '\0')
+        return 0;
+
+    if (inet_pton(AF_INET, ip, buf) == 1) {
+        size_t before = map->count;
+
+        cf_dns_role_map_add_ip(map, 4, buf, label);
+        return map->count > before ? 1 : 0; /* 0 only on allocation failure */
+    }
+    if (inet_pton(AF_INET6, ip, buf) == 1) {
+        size_t before = map->count;
+
+        cf_dns_role_map_add_ip(map, 6, buf, label);
+        return map->count > before ? 1 : 0;
+    }
+    return 0; /* malformed / not an IPv4 or IPv6 literal */
+}
+
+const char *cf_dns_role_lookup(const cf_dns_role_map_t *map, uint8_t ip_version,
+                               const uint8_t ip[16])
+{
+    size_t width, i;
+
+    if (!map || (ip_version != 4 && ip_version != 6))
+        return NULL;
+
+    width = cf_dns_addr_width(ip_version);
+    for (i = 0; i < map->count; i++) {
+        const cf_dns_role_entry_t *e = &map->entries[i];
+
+        /* Version-aware, first-match-wins in insertion order. */
+        if (e->ip_version == ip_version && memcmp(e->ip, ip, width) == 0)
+            return e->label;
+    }
+    return NULL;
+}
+
 Cloudflow__V1__DnsLeg cf_dns_classify_leg(const cf_dns_leg_config_t *cfg,
                                           uint8_t ip_version,
                                           const uint8_t src_ip[16],

@@ -269,6 +269,89 @@ static void test_observed_pair(void)
     cf_queue_destroy(&out);
 }
 
+/* WP-DNS11a: the emitted DnsTransactionEvent carries the operator service_role
+ * for its server-side IP (192.0.2.53 in the fixtures), empty when unmapped or
+ * when there is no role map. Drives the same observed query+response pair. */
+static Cloudflow__V1__DnsTransactionEvent *run_observed_with_role_map(
+    const cf_dns_role_map_t *role_map, Cloudflow__V1__CloudFlowEvent **ev_out,
+    cf_queue_t *out, cf_dns_source_stats_t *stats, dns_stage_t **stage_out)
+{
+    dns_stage_config_t cfg;
+    dns_stage_t *stage;
+    cf_packet_item_t q, r;
+    Cloudflow__V1__CloudFlowEvent *ev;
+
+    cfg = make_cfg(out, stats, CF_DNS_EMIT_ALL, 0);
+    cfg.role_map = role_map;
+    stage = dns_stage_new(&cfg);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stage);
+
+    CU_ASSERT_EQUAL_FATAL(load_frame("q_a_query", 1000000, &q), 0);
+    CU_ASSERT_EQUAL_FATAL(load_frame("q_a_response", 1500000, &r), 0);
+    CU_ASSERT_EQUAL(dns_stage_process_packet(stage, &q), 0);
+    CU_ASSERT_EQUAL(dns_stage_process_packet(stage, &r), 0);
+
+    ev = pop_event(out);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(ev);
+    *ev_out = ev;
+    *stage_out = stage;
+    return ev->dns_transaction;
+}
+
+static void test_service_role_tagging(void)
+{
+    cf_queue_t out;
+    cf_dns_source_stats_t stats;
+    cf_dns_role_map_t *map;
+    Cloudflow__V1__CloudFlowEvent *ev;
+    Cloudflow__V1__DnsTransactionEvent *txn;
+    dns_stage_t *stage;
+
+    /* (1) server 192.0.2.53 mapped to "recursor" -> the decoded event carries it. */
+    memset(&stats, 0, sizeof(stats));
+    CU_ASSERT_EQUAL_FATAL(cf_queue_init(&out, 64, sizeof(cf_event_item_t)), 0);
+    map = cf_dns_role_map_new();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(map);
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(map, "192.0.2.53", "recursor"), 1);
+
+    txn = run_observed_with_role_map(map, &ev, &out, &stats, &stage);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(txn);
+    CU_ASSERT_STRING_EQUAL(txn->server_ip, "192.0.2.53");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(txn->service_role);
+    CU_ASSERT_STRING_EQUAL(txn->service_role, "recursor");
+    cloudflow__v1__cloud_flow_event__free_unpacked(ev, NULL);
+    dns_stage_free(stage);
+    cf_dns_role_map_free(map);
+    cf_queue_destroy(&out);
+
+    /* (2) a map that does NOT contain the server IP -> empty service_role. */
+    memset(&stats, 0, sizeof(stats));
+    CU_ASSERT_EQUAL_FATAL(cf_queue_init(&out, 64, sizeof(cf_event_item_t)), 0);
+    map = cf_dns_role_map_new();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(map);
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(map, "203.0.113.9", "authoritative"), 1);
+
+    txn = run_observed_with_role_map(map, &ev, &out, &stats, &stage);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(txn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(txn->service_role);
+    CU_ASSERT_STRING_EQUAL(txn->service_role, "");
+    cloudflow__v1__cloud_flow_event__free_unpacked(ev, NULL);
+    dns_stage_free(stage);
+    cf_dns_role_map_free(map);
+    cf_queue_destroy(&out);
+
+    /* (3) no role map at all (NULL) -> empty service_role. */
+    memset(&stats, 0, sizeof(stats));
+    CU_ASSERT_EQUAL_FATAL(cf_queue_init(&out, 64, sizeof(cf_event_item_t)), 0);
+    txn = run_observed_with_role_map(NULL, &ev, &out, &stats, &stage);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(txn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(txn->service_role);
+    CU_ASSERT_STRING_EQUAL(txn->service_role, "");
+    cloudflow__v1__cloud_flow_event__free_unpacked(ev, NULL);
+    dns_stage_free(stage);
+    cf_queue_destroy(&out);
+}
+
 static void test_unanswered_on_tick(void)
 {
     cf_queue_t out;
@@ -533,6 +616,7 @@ int main(void)
     }
 
     if (!CU_add_test(suite, "udp query+response -> one observed transaction", test_observed_pair) ||
+        !CU_add_test(suite, "service_role tagged from role map (mapped/unmapped/none)", test_service_role_tagging) ||
         !CU_add_test(suite, "lone query + tick -> unanswered", test_unanswered_on_tick) ||
         !CU_add_test(suite, "pending query at teardown -> unanswered (free drain)", test_unanswered_on_free_drain) ||
         !CU_add_test(suite, "lone response -> unmatched", test_unmatched_response) ||

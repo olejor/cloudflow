@@ -105,6 +105,20 @@ Numbered `DNS-D1…`, continuing the spirit of `docs/architecture.md`'s
   (DNS-D2's "auto + config override") are required, and the backend set in
   particular is the only thing separating a dnsdist→pdns query from an
   internet-upstream query.
+
+  **DNS-D7 extension — per-transaction service role (WP-DNS11a).** Beyond the
+  leg `role`, each transaction also carries a config-driven `service_role`: an
+  arbitrary operator label (e.g. `dnsdist` / `recursor` / `authoritative`).
+  The wire cannot tell a recursor from an authoritative — both listen on `:53`
+  — so the label is not inferred; it is looked up from config, keyed on the
+  transaction's **server-side address** (the endpoint that owns `:53`, which
+  the classifier above already identifies). Config (`dns.service_roles`) maps
+  each of the operator's DNS service IPs to a label; a transaction's
+  `service_role` is the label for its `server_ip`, or empty when that address
+  is unmapped or the server side is indeterminate. Because it keys on the
+  server IP, both a client→recursor and a dnsdist→recursor transaction resolve
+  to the same label. It is an additional operator dimension and does **not**
+  change the leg `role`; a later change routes the Splunk sourcetype by it.
 - **DNS-D8 — Bounded everything, visible loss.** The DNS source adds the
   correlation table to the existing bounded queues. Volume is far higher than
   DHCP, so the source ships first-class sampling/emit policy
@@ -152,6 +166,14 @@ message DnsTransactionEvent {
   string client_ip = 9;
   uint32 client_port = 10;
   string server_ip = 11;
+
+  // Operator-assigned service role (WP-DNS11a) — an arbitrary label such as
+  // dnsdist / recursor / authoritative, taken from config and keyed on the
+  // server-side address (`server_ip`), or empty when that address is unmapped
+  // or the server side is indeterminate. It is a config dimension only; it
+  // does not change the leg `role`. A later WP routes the Splunk sourcetype by
+  // it.
+  string service_role = 12;
 
   repeated ParserWarning parser_warnings = 20;
 }

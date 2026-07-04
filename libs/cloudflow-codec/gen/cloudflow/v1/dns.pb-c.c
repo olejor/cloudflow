@@ -322,7 +322,7 @@ void   cloudflow__v1__dns_edns_option__free_unpacked
   assert(message->base.descriptor == &cloudflow__v1__dns_edns_option__descriptor);
   protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
 }
-static const ProtobufCFieldDescriptor cloudflow__v1__dns_transaction_event__field_descriptors[12] =
+static const ProtobufCFieldDescriptor cloudflow__v1__dns_transaction_event__field_descriptors[13] =
 {
   {
     "query_packet",
@@ -457,6 +457,18 @@ static const ProtobufCFieldDescriptor cloudflow__v1__dns_transaction_event__fiel
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
   {
+    "service_role",
+    12,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_STRING,
+    0,   /* quantifier_offset */
+    offsetof(Cloudflow__V1__DnsTransactionEvent, service_role),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
     "parser_warnings",
     20,
     PROTOBUF_C_LABEL_REPEATED,
@@ -472,7 +484,7 @@ static const ProtobufCFieldDescriptor cloudflow__v1__dns_transaction_event__fiel
 static const unsigned cloudflow__v1__dns_transaction_event__field_indices_by_name[] = {
   8,   /* field[8] = client_ip */
   9,   /* field[9] = client_port */
-  11,   /* field[11] = parser_warnings */
+  12,   /* field[12] = parser_warnings */
   2,   /* field[2] = query */
   0,   /* field[0] = query_packet */
   3,   /* field[3] = response */
@@ -481,13 +493,14 @@ static const unsigned cloudflow__v1__dns_transaction_event__field_indices_by_nam
   5,   /* field[5] = rtt_nanos */
   6,   /* field[6] = rtt_valid */
   10,   /* field[10] = server_ip */
+  11,   /* field[11] = service_role */
   7,   /* field[7] = transaction_key */
 };
 static const ProtobufCIntRange cloudflow__v1__dns_transaction_event__number_ranges[2 + 1] =
 {
   { 1, 0 },
-  { 20, 11 },
-  { 0, 12 }
+  { 20, 12 },
+  { 0, 13 }
 };
 const ProtobufCMessageDescriptor cloudflow__v1__dns_transaction_event__descriptor =
 {
@@ -497,7 +510,7 @@ const ProtobufCMessageDescriptor cloudflow__v1__dns_transaction_event__descripto
   "Cloudflow__V1__DnsTransactionEvent",
   "cloudflow.v1",
   sizeof(Cloudflow__V1__DnsTransactionEvent),
-  12,
+  13,
   cloudflow__v1__dns_transaction_event__field_descriptors,
   cloudflow__v1__dns_transaction_event__field_indices_by_name,
   2,  cloudflow__v1__dns_transaction_event__number_ranges,

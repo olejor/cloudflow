@@ -36,6 +36,14 @@
 #include "correlation.h" /* CF_DNS_ON_FULL_DROP_NEWEST/_OLDEST */
 #include "sampling.h"    /* cf_dns_emit_mode_t */
 
+/* One dns.service_roles entry (WP-DNS11a): a group of server-side DNS service
+ * addresses that share an operator-assigned label. Owned by cf_dns_config_t. */
+typedef struct {
+    char **addresses;      /* heap array of heap IP-literal strings */
+    size_t address_count;
+    char  *label;          /* operator label, e.g. "recursor" */
+} cf_dns_service_role_t;
+
 typedef struct {
     char *service_name;
     char *source_host; /* "" or NULL => main.c falls back to gethostname() */
@@ -73,6 +81,12 @@ typedef struct {
     /* Sampling / emit policy (DNS-D8). */
     cf_dns_emit_mode_t dns_emit_mode; /* CF_DNS_EMIT_ALL (default) / _PREDICATE */
     uint32_t dns_sample_denominator;  /* keep 1 of every N routine txns; 0/1 = keep all */
+
+    /* Service-role map (WP-DNS11a, a DNS-D7 extension): each group maps a set of
+     * server-side DNS service IPs to an operator label. Stored as parsed groups;
+     * main.c builds the cf_dns_role_map_t. */
+    cf_dns_service_role_t *dns_service_roles;
+    size_t dns_service_role_count;
 
     uint32_t stats_interval_s;
     int stats_reset_on_report; /* 0/1 */
