@@ -65,11 +65,19 @@ comes from `redis.maxlen_approx` in the source's config, and from
 `configs/examples/redis.yaml`), so Redis itself never grows unbounded.
 
 Every sink type reads through its own consumer group, so one sink's progress
-and pending entries never block another sink reading the same stream:
+and pending entries never block another sink reading the same stream. This is
+what lets several sinks consume the same streams independently (see the sinks
+table in `docs/architecture.md`):
 
 ```text
-sink-splunk    (cloudflow-sink-splunk's group, on every wire stream it consumes)
+sink-splunk            cloudflow-sink-splunk (event index) — implemented
+sink-splunk-metrics    cloudflow-sink-splunk-metrics (metrics index) — designed
+sink-clickhouse        cloudflow-sink-clickhouse (columnar analytics) — designed
 ```
+
+Each sink also has its own dead-letter stream
+(`cloudflow:v1:deadletter:<group>`), so an unprocessable event for one
+destination never affects another.
 
 Details of consumer behavior (`XAUTOCLAIM`, `XREADGROUP`, ack-after-delivery)
 live in `docs/splunk-output.md`.

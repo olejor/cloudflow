@@ -20,7 +20,7 @@ Initial scope:
 - Redis Streams producer
 - Splunk sink
 
-Do not broaden the implementation to DNS, syslog, ClickHouse, MySQL, or other sinks unless explicitly requested in the task. The repository may be structured to allow them later, but the current implementation target is DHCP + Redis + Splunk.
+Do not broaden the *implementation* beyond what a task asks for. v0.1 (DHCP + Redis + Splunk event sink) is implemented; the DNS source, the Splunk metrics sink, and the ClickHouse sink are designed in `docs/` but not yet built — implement them only when a task explicitly requests it. A syslog source and a relational sink are not planned. See "Current non-goals" below.
 
 ## Architectural rules
 
@@ -280,7 +280,9 @@ docs/event-model.md              envelope, event types, protobuf contract
 docs/redis-streams.md            transport, wire streams, consumer groups, dead-letter
 docs/dhcp-source.md              the implemented DHCP source
 docs/dns-source.md                the designed (not yet implemented) DNS source
-docs/splunk-output.md            the sink: consumer semantics, HEC mapping, retry policy
+docs/splunk-output.md            the Splunk event sink: consumer, HEC mapping, retry policy
+docs/splunk-metrics.md           the designed Splunk metrics sink and its metric mapping
+docs/clickhouse-sink.md          the designed (future) ClickHouse analytics sink
 docs/failure-modes.md            loss/retry decisions and the tests that prove them
 docs/building-and-testing.md    build system, codegen, tests, CI, benchmark, debug tools
 ```
@@ -296,15 +298,22 @@ Every non-trivial design choice should be documented, especially choices involvi
 Unless a task explicitly requests it, do not implement:
 
 - syslog source,
-- ClickHouse sink,
-- MySQL/MariaDB sink,
+- MySQL/MariaDB (relational) sink,
 - Kubernetes deployment,
 - full TCP stream reassembly,
 - HTTP parsing,
 - application instrumentation agents.
 
 The first deliverable was DHCPv4/DHCPv6 -> Redis Streams -> Splunk (v0.1,
-complete). A **wire-observed DNS source** (v0.2) has now been explicitly
-requested and is designed in `docs/dns-source.md`; it reuses the v0.1
-libraries and adds a stateful query/response correlation stage. The
-repository can remain extensible for the remaining items above.
+complete). Explicitly requested and now designed (not yet implemented):
+
+- a **wire-observed DNS source** (`docs/dns-source.md`) — reuses the v0.1
+  libraries and adds a stateful query/response correlation stage;
+- a **Splunk metrics sink** (`docs/splunk-metrics.md`) — a second consumer
+  group emitting metric points for RTT/rate/count dashboards;
+- a **ClickHouse sink** (`docs/clickhouse-sink.md`) — columnar analytics over
+  the raw firehose, sequenced after the DNS source.
+
+A relational sink for derived state (a lease table, a client inventory) is
+deliberately **not** planned yet — it needs a correlation/aggregation stage
+first. The repository can remain extensible for the remaining items above.

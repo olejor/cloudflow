@@ -7,6 +7,13 @@ authoritative reference for the sink: its consumer semantics, the
 `decode-event` debug tool's `--hec` mode reuses the same rules, and changing
 them is a schema change), and its retry/dead-letter behavior.
 
+This sink delivers to Splunk's **event** index (full-fidelity, searchable
+JSON). A sibling **metrics** sink — same spine, different transform, its own
+consumer group — delivers rates and latency distributions to Splunk's metrics
+index; it is designed in `docs/splunk-metrics.md`. Both, and the designed
+ClickHouse sink (`docs/clickhouse-sink.md`), are independent consumers of the
+same streams (see the sinks table in `docs/architecture.md`).
+
 Pipeline:
 
 ```text

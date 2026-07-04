@@ -76,6 +76,37 @@ added — see `docs/dns-source.md`): both packet observations when present, the
 decoded query and response messages, the leg `role`
 (client-facing / backend / recursion-upstream), and per-leg RTT.
 
+## Observed identity — "who did this?"
+
+Every event answers "who was the source" but *where* the useful answer lives
+differs by protocol, so it is worth stating explicitly. Every payload carries
+a `PacketObservation` (`common.proto`) with the raw wire source —
+`link.src_mac`, `network.src_ip` / `dst_ip`, `transport.src_port` /
+`dst_port` — so the L2/L3/L4 source is always present. On top of that:
+
+- **DHCP.** The L3 source is usually `0.0.0.0`: a client sending DISCOVER /
+  REQUEST has no lease yet, so `network.src_ip` is not the identity. The
+  meaningful client identity is derived into
+  `DhcpV4PacketEvent.interpretation.normalized_client_key` (the client-id from
+  option 61, else the `chaddr` MAC), with `header.chaddr_mac` and — for
+  relayed traffic — the relay `giaddr` and option 82 circuit/remote-id
+  alongside it. So for DHCP, "who asked" is the client MAC / client-id plus
+  relay context, not `src_ip`.
+- **DNS** (designed). The L3 source *is* the identity: `query_packet`'s
+  `network.src_ip` is the client on the client-facing leg, or the recursor on
+  the upstream leg. Combined with the transaction's `role`, that distinguishes
+  "a client queried us" from "we queried upstream". `DnsTransactionEvent`
+  surfaces `client_ip` / `client_port` / `server_ip` directly (see
+  `docs/dns-source.md`) so downstream sinks do not have to reach into the
+  nested packet observation to dimension by client.
+
+Sinks rely on this: the Splunk event sink keeps identity searchable at its
+`event.<payload>.…` path, and the metrics sink (`docs/splunk-metrics.md`) uses
+the normalized identity — client key / client IP / role — as metric
+dimensions. Because identity is a first-class, per-protocol concept rather than
+"whatever `src_ip` happens to be", a sink can dimension DHCP by client MAC and
+DNS by client IP without special-casing empty addresses.
+
 ## Protobuf contract
 
 The schema under `proto/cloudflow/v1/` is the compatibility contract between

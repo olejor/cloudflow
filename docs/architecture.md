@@ -91,6 +91,26 @@ JSON mapping is a stable contract also used by the `decode-event` debug tool.
 See `docs/dhcp-source.md` for the DHCP source in detail and
 `docs/splunk-output.md` for the sink in detail.
 
+## Sinks
+
+Sinks are destination-agnostic consumers of the wire streams, and Redis
+consumer groups isolate their progress — so **any number of sinks can read the
+same streams independently**, each transforming the same `CloudFlowEvent`s for
+a different destination. They all share one spine (the consumer /
+`XAUTOCLAIM` / ack-after-delivery / retry / dead-letter machinery); only the
+transform and delivery client differ.
+
+| Sink | Destination | Purpose | Status |
+|---|---|---|---|
+| `cloudflow-sink-splunk` | Splunk HEC event index | full-fidelity forensic record; searchable JSON | v0.1, implemented |
+| `cloudflow-sink-splunk-metrics` | Splunk HEC metrics index | rates, latency distributions, counts for dashboards/alerting | designed — `docs/splunk-metrics.md` |
+| `cloudflow-sink-clickhouse` | ClickHouse | columnar/analytical navigation of the raw firehose | designed, future — `docs/clickhouse-sink.md` |
+
+The metrics and ClickHouse sinks are documented but not yet built; both are
+sequenced after the DNS source, since DNS RTT/rate data and its
+high-cardinality joins are what most justify a dedicated metrics store and a
+columnar analytics store.
+
 ## Design decisions
 
 Numbered so other docs, PRs, and code comments can reference them (`D1`..`D11`).

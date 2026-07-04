@@ -145,6 +145,15 @@ message DnsTransactionEvent {
   // Correlation provenance for debugging: the key fields used to match.
   string transaction_key = 8;
 
+  // Normalized identity, surfaced directly so sinks (and Splunk-metric
+  // dimensioning) do not have to reach into query_packet.network. These are
+  // the "who did this" fields for DNS per docs/event-model.md: for the
+  // client-facing leg client_ip is the querying client; for the upstream leg
+  // it is the recursor and server_ip is the authoritative it asked.
+  string client_ip = 9;
+  uint32 client_port = 10;
+  string server_ip = 11;
+
   repeated ParserWarning parser_warnings = 20;
 }
 
