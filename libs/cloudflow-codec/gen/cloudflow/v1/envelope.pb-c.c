@@ -52,7 +52,7 @@ void   cloudflow__v1__cloud_flow_event__free_unpacked
   assert(message->base.descriptor == &cloudflow__v1__cloud_flow_event__descriptor);
   protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
 }
-static const ProtobufCFieldDescriptor cloudflow__v1__cloud_flow_event__field_descriptors[4] =
+static const ProtobufCFieldDescriptor cloudflow__v1__cloud_flow_event__field_descriptors[5] =
 {
   {
     "envelope",
@@ -102,18 +102,31 @@ static const ProtobufCFieldDescriptor cloudflow__v1__cloud_flow_event__field_des
     0 | PROTOBUF_C_FIELD_FLAG_ONEOF,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
+  {
+    "dns_transaction",
+    23,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(Cloudflow__V1__CloudFlowEvent, payload_case),
+    offsetof(Cloudflow__V1__CloudFlowEvent, dns_transaction),
+    &cloudflow__v1__dns_transaction_event__descriptor,
+    NULL,
+    0 | PROTOBUF_C_FIELD_FLAG_ONEOF,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
 };
 static const unsigned cloudflow__v1__cloud_flow_event__field_indices_by_name[] = {
   3,   /* field[3] = dhcpv4_lease */
   1,   /* field[1] = dhcpv4_packet */
   2,   /* field[2] = dhcpv6_packet */
+  4,   /* field[4] = dns_transaction */
   0,   /* field[0] = envelope */
 };
 static const ProtobufCIntRange cloudflow__v1__cloud_flow_event__number_ranges[2 + 1] =
 {
   { 1, 0 },
   { 20, 1 },
-  { 0, 4 }
+  { 0, 5 }
 };
 const ProtobufCMessageDescriptor cloudflow__v1__cloud_flow_event__descriptor =
 {
@@ -123,7 +136,7 @@ const ProtobufCMessageDescriptor cloudflow__v1__cloud_flow_event__descriptor =
   "Cloudflow__V1__CloudFlowEvent",
   "cloudflow.v1",
   sizeof(Cloudflow__V1__CloudFlowEvent),
-  4,
+  5,
   cloudflow__v1__cloud_flow_event__field_descriptors,
   cloudflow__v1__cloud_flow_event__field_indices_by_name,
   2,  cloudflow__v1__cloud_flow_event__number_ranges,

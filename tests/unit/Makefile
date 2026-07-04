@@ -100,21 +100,32 @@ DHCPV6_TEST_LDLIBS   := -lcunit $(shell pkg-config --libs libprotobuf-c)
 
 DHCPV6_BIN := $(BUILD_DIR)/cf_dhcpv6_test
 
+# cf_dns_test.c (WP-DNS03) needs the packet library (cf_parse_util + cf_dns),
+# the generated protobuf-c headers/lib (dns.pb-c.h / common.pb-c.h), and
+# CUnit. Unlike the DHCP tests it is driven entirely by hand-built DNS byte
+# arrays (the scapy fixture corpus is a separate WP), so it needs no
+# FIXTURES_DIR.
+DNS_TEST_CPPFLAGS := -I$(PACKET_DIR) -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c)
+DNS_TEST_LDLIBS   := -lcunit $(shell pkg-config --libs libprotobuf-c)
+
+DNS_BIN := $(BUILD_DIR)/cf_dns_test
+
 .PHONY: all test-unit test-tsan test-asan clean
 
-all: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN) $(DHCPV4_BIN) $(DHCPV6_BIN)
+all: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN) $(DHCPV4_BIN) $(DHCPV6_BIN) $(DNS_BIN)
 
 # Builds (if needed) and runs all unit test binaries plus the Python codec
 # round-trip script; fails the build if any of them fails (the C binaries
 # return non-zero on CUnit failure, and codec_roundtrip.py raises on
 # assertion failure).
-test-unit: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN) $(DHCPV4_BIN) $(DHCPV6_BIN)
+test-unit: $(BIN) $(CODEC_BIN) $(QUEUE_BIN) $(DECAP_BIN) $(DHCPV4_BIN) $(DHCPV6_BIN) $(DNS_BIN)
 	./$(BIN)
 	./$(CODEC_BIN)
 	./$(QUEUE_BIN)
 	./$(DECAP_BIN)
 	./$(DHCPV4_BIN)
 	./$(DHCPV6_BIN)
+	./$(DNS_BIN)
 	PYTHONPATH=$(PY_CODEC_DIR) python3 $(ROOT)/tests/unit/codec_roundtrip.py
 
 $(CORE_LIB):
@@ -173,6 +184,15 @@ $(BUILD_DIR)/cf_dhcpv6_test.o: cf_dhcpv6_test.c | $(BUILD_DIR)
 
 $(DHCPV6_BIN): $(BUILD_DIR)/cf_dhcpv6_test.o $(PACKET_LIB) $(CODEC_LIB)
 	$(LINK.o) -o $@ $(BUILD_DIR)/cf_dhcpv6_test.o $(PACKET_LIB) $(CODEC_LIB) $(DHCPV6_TEST_LDLIBS)
+
+# Explicit rule for cf_dns_test.o (WP-DNS03), same reasoning as the DHCP test
+# objects above: it needs -I$(PACKET_DIR) + the codec gen dir + libprotobuf-c
+# cflags instead of the generic rule's -I core.
+$(BUILD_DIR)/cf_dns_test.o: cf_dns_test.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(DNS_TEST_CPPFLAGS) -c $< -o $@
+
+$(DNS_BIN): $(BUILD_DIR)/cf_dns_test.o $(PACKET_LIB) $(CODEC_LIB)
+	$(LINK.o) -o $@ $(BUILD_DIR)/cf_dns_test.o $(PACKET_LIB) $(CODEC_LIB) $(DNS_TEST_LDLIBS)
 
 # ---------------------------------------------------------------------------
 # test-tsan (WP-04)
@@ -365,13 +385,45 @@ $(BUILD_DIR)/asan_dhcpv6_%.o: $(CODEC_GEN_DIR)/cloudflow/v1/%.c | $(BUILD_DIR)
 $(DHCPV6_ASAN_BIN): $(DHCPV6_ASAN_OBJECTS)
 	$(CC) $(ASAN_LDFLAGS) -o $@ $(DHCPV6_ASAN_OBJECTS) $(DHCPV6_ASAN_LDLIBS)
 
-test-asan: $(CORE_ASAN_BIN) $(CODEC_ASAN_BIN) $(QUEUE_ASAN_BIN) $(DECAP_ASAN_BIN) $(DHCPV4_ASAN_BIN) $(DHCPV6_ASAN_BIN)
+# -- dns (cf_dns_test + cf_ipfmt.c + the WP-DNS03 cf_parse_util.c/cf_dns.c
+# sources, instrumented, plus the generated common.pb-c.c/dns.pb-c.c sources
+# DnsMessage needs -- same "compile the library sources straight in" reasoning
+# as the dhcpv4/dhcpv6 blocks above. This is the security-critical suite
+# (name decompression / compression-loop fuzzing), so an ASan/UBSan run over
+# it is the point of the exercise.) --
+DNS_ASAN_CFLAGS := $(ASAN_CFLAGS) -I$(PACKET_DIR) -I$(CODEC_GEN_DIR) \
+                    $(shell pkg-config --cflags libprotobuf-c)
+DNS_ASAN_LDLIBS := -lcunit $(shell pkg-config --libs libprotobuf-c)
+
+DNS_ASAN_PACKET_SOURCES := cf_ipfmt.c cf_parse_util.c cf_dns.c
+DNS_ASAN_GEN_SOURCES    := common.pb-c.c dns.pb-c.c
+
+DNS_ASAN_OBJECTS := $(BUILD_DIR)/asan_dns_cf_dns_test.o \
+                     $(addprefix $(BUILD_DIR)/asan_dns_,$(DNS_ASAN_PACKET_SOURCES:.c=.o)) \
+                     $(addprefix $(BUILD_DIR)/asan_dns_,$(DNS_ASAN_GEN_SOURCES:.c=.o))
+
+DNS_ASAN_BIN := $(BUILD_DIR)/cf_dns_test_asan
+
+$(BUILD_DIR)/asan_dns_cf_dns_test.o: cf_dns_test.c | $(BUILD_DIR)
+	$(CC) $(DNS_ASAN_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/asan_dns_%.o: $(PACKET_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(DNS_ASAN_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/asan_dns_%.o: $(CODEC_GEN_DIR)/cloudflow/v1/%.c | $(BUILD_DIR)
+	$(CC) $(DNS_ASAN_CFLAGS) -c $< -o $@
+
+$(DNS_ASAN_BIN): $(DNS_ASAN_OBJECTS)
+	$(CC) $(ASAN_LDFLAGS) -o $@ $(DNS_ASAN_OBJECTS) $(DNS_ASAN_LDLIBS)
+
+test-asan: $(CORE_ASAN_BIN) $(CODEC_ASAN_BIN) $(QUEUE_ASAN_BIN) $(DECAP_ASAN_BIN) $(DHCPV4_ASAN_BIN) $(DHCPV6_ASAN_BIN) $(DNS_ASAN_BIN)
 	./$(CORE_ASAN_BIN)
 	./$(CODEC_ASAN_BIN)
 	./$(QUEUE_ASAN_BIN)
 	./$(DECAP_ASAN_BIN)
 	./$(DHCPV4_ASAN_BIN)
 	./$(DHCPV6_ASAN_BIN)
+	./$(DNS_ASAN_BIN)
 
 $(BUILD_DIR):
 	mkdir -p $@

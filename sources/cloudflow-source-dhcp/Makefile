@@ -161,7 +161,7 @@ ASAN_CORE_SOURCES   := cloudflow.c cf_time.c cf_sync.c cf_log.c cf_event_id.c sh
 ASAN_PACKET_SOURCES := cf_decap.c cf_ipfmt.c cf_dhcpv4.c cf_dhcpv4_decode.c cf_dhcpv4_util.c \
                        cf_dhcpv4_optnames.c cf_dhcpv6.c cf_dhcpv6_decode.c cf_dhcpv6_util.c \
                        cf_dhcpv6_optnames.c
-ASAN_GEN_SOURCES    := common.pb-c.c dhcp.pb-c.c envelope.pb-c.c
+ASAN_GEN_SOURCES    := common.pb-c.c dhcp.pb-c.c dns.pb-c.c envelope.pb-c.c
 
 ASAN_OBJECTS := $(addprefix $(BUILD_DIR)/asan_formatter_,$(notdir $(ASAN_TEST_SOURCES:.c=.o))) \
                 $(addprefix $(BUILD_DIR)/asan_formatter_,$(ASAN_CORE_SOURCES:.c=.o)) \

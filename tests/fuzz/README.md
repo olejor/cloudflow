@@ -92,3 +92,38 @@ fallback as `dhcpv4_fuzz_quick_check.sh`, over the `v6_*.pcap` fixtures:
 ```sh
 ./tests/fuzz/dhcpv6_fuzz_quick_check.sh
 ```
+
+## Fuzzing cf_dns_parse() (WP-DNS09)
+
+`dns_fuzz.c` is the same style of harness for the DNS message parser
+(`libs/cloudflow-packet/cf_dns.c`): it reads one **bare** DNS message from
+`argv[1]`/stdin and calls `cf_dns_parse()`. "Bare" means the 12-byte DNS
+header onward with no UDP/TCP framing and **no TCP 2-byte length prefix**
+(DNS-D1: the caller strips framing first). If the parse succeeds it also
+packs and frees the resulting `DnsMessage` (so packing a maximally-populated,
+possibly-malformed tree is exercised too), and it always drains and frees the
+parser-warning list `cf_dns_parse` appends to, so the harness is leak-clean
+under ASan. Build it the same way:
+
+```sh
+make -C libs/cloudflow-packet all   # build/libcloudflow-packet.a
+make -C libs/cloudflow-codec all    # build/libcloudflow-codec.a
+make -C tests/fuzz all              # tests/fuzz/dns_fuzz
+```
+
+To fuzz with AFL, seed with the bare DNS messages extracted from
+`tests/fixtures/dns/*.pcap`: for udp/53 fixtures use `bytes(pkt[UDP].payload)`;
+for the tcp/53 fixtures use `bytes(pkt[TCP].payload)[2:]` (strip the 2-byte
+length prefix). Run the same way as `decap_fuzz` above, substituting
+`./tests/fuzz/dns_fuzz`.
+
+If AFL isn't available, `dns_fuzz_quick_check.sh` is the same one-shot
+fallback as the DHCP ones: it builds an ASan+UBSan `dns_fuzz`, extracts a
+bare DNS message from every `tests/fixtures/dns/*.pcap` (udp and tcp,
+stripping the TCP length prefix), runs the harness over each seed, generates
+1000 deterministic truncation/bit-flip variants, and runs the harness over
+all of them, failing if anything crashes or leaks:
+
+```sh
+./tests/fuzz/dns_fuzz_quick_check.sh
+```

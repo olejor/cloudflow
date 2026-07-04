@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package cloudflow.v1;
+
+import "cloudflow/v1/common.proto";
+
+// One fully-correlated DNS transaction: a query matched to its response, or
+// for the unmatched/unanswered event types, whichever half was actually
+// observed on the wire. See docs/dns-source.md for the correlation stage
+// that produces these (DNS-D4/DNS-D5/DNS-D6).
+message DnsTransactionEvent {
+  // Both packet observations, when present. query_packet/response_packet are
+  // each a standard PacketObservation (common.proto), so link/network/
+  // transport metadata, capture time, VLAN, etc. come for free.
+  PacketObservation query_packet = 1;
+  PacketObservation response_packet = 2;
+
+  DnsMessage query = 3;     // decoded query message (question, header)
+  DnsMessage response = 4;  // decoded response message (answers, rcode)
+
+  DnsLeg role = 5;          // CLIENT_FACING / BACKEND / RECURSION_UPSTREAM
+  int64 rtt_nanos = 6;      // response.observed - query.observed; 0/unset if unmatched
+  bool rtt_valid = 7;
+
+  // Correlation provenance for debugging: the key fields used to match
+  // (DNS-D6 in docs/dns-source.md).
+  string transaction_key = 8;
+
+  // Normalized identity, surfaced directly so sinks (and Splunk-metric
+  // dimensioning) do not have to reach into query_packet.network. These are
+  // the "who did this" fields for DNS per docs/event-model.md: for the
+  // client-facing leg client_ip is the querying client; for the upstream leg
+  // it is the recursor, and server_ip is the authoritative it asked.
+  string client_ip = 9;
+  uint32 client_port = 10;
+  string server_ip = 11;
+
+  repeated ParserWarning parser_warnings = 20;
+}
+
+// Which side of the observed DNS conversation this transaction represents,
+// decided by which side owns port 53 (DNS-D7 in docs/dns-source.md).
+enum DnsLeg {
+  DNS_LEG_UNSPECIFIED = 0;
+  DNS_LEG_CLIENT_FACING = 1;
+  DNS_LEG_BACKEND = 2;
+  DNS_LEG_RECURSION_UPSTREAM = 3;
+  DNS_LEG_UNKNOWN = 4;
+}
+
+// A single decoded DNS message (query or response side of a transaction).
+message DnsMessage {
+  DnsHeader header = 1;
+  repeated DnsQuestion questions = 2;      // usually exactly one
+  repeated DnsResourceRecord answers = 3;
+  repeated DnsResourceRecord authority = 4;
+  repeated DnsResourceRecord additional = 5;
+  DnsEdns edns = 6;                        // OPT pseudo-record, when present
+
+  // Optional raw DNS message bytes (header through the end of the parsed
+  // message), subject to a size cap analogous to DhcpV4PacketEvent's
+  // raw_dhcp_payload. May be disabled in production if the decoded fields
+  // are sufficient.
+  bytes raw_dns_payload = 20;
+  bool raw_payload_truncated = 21;
+}
+
+message DnsHeader {
+  uint32 id = 1;
+
+  bool qr = 2;
+  uint32 opcode = 3;
+  bool aa = 4;
+  bool tc = 5;
+  bool rd = 6;
+  bool ra = 7;
+  bool ad = 8;
+  bool cd = 9;
+
+  // Response code. When EDNS is present this is the 12-bit extended rcode
+  // (DnsEdns.extended_rcode folded in); DnsHeader.rcode always carries the
+  // effective value.
+  uint32 rcode = 10;
+
+  uint32 qdcount = 11;
+  uint32 ancount = 12;
+  uint32 nscount = 13;
+  uint32 arcount = 14;
+}
+
+message DnsQuestion {
+  string qname = 1;       // presentation form, lowercased
+  bytes qname_wire = 2;   // raw, pre-normalization (preserves 0x20 casing)
+
+  // Raw code plus name, mirroring how DhcpV4DecodedOptions keeps raw codes
+  // alongside a *_name string rather than a giant enum (dhcp.proto).
+  uint32 qtype = 3;
+  string qtype_name = 4;
+
+  uint32 qclass = 5;
+}
+
+message DnsResourceRecord {
+  string name = 1;
+
+  uint32 type = 2;
+  string type_name = 3;
+
+  uint32 class = 4;
+  uint32 ttl = 5;
+
+  bytes rdata_raw = 6;
+
+  // Best-effort decode for common types (A/AAAA/CNAME/NS/MX/TXT/SOA/PTR/SRV).
+  string rdata_text = 7;
+
+  // True if the record's length/rdata could not be parsed cleanly.
+  bool malformed = 8;
+}
+
+// The OPT pseudo-record (EDNS0), decoded separately from the answer/
+// authority/additional record lists since it carries protocol-level
+// metadata rather than an ordinary resource record.
+message DnsEdns {
+  uint32 udp_payload_size = 1;
+  uint32 extended_rcode = 2;
+  uint32 version = 3;
+  bool do_bit = 4;  // DNSSEC OK
+
+  repeated DnsEdnsOption options = 5;  // e.g. ECS (option 8), cookie (10)
+}
+
+// A single EDNS0 option (RFC 6891): a code/length/value triple, plus a
+// best-effort decoded text for options CloudFlow understands (e.g. ECS/
+// option 8's client subnet, cookie/option 10's hex value).
+message DnsEdnsOption {
+  uint32 code = 1;
+  string name = 2;
+  uint32 length = 3;
+  bytes raw_value = 4;
+
+  // Best-effort decode, e.g. ECS's "192.0.2.0/24" presentation form.
+  string decoded_text = 5;
+}

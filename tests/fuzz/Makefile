@@ -29,13 +29,20 @@ DHCPV4_LDLIBS := $(shell pkg-config --libs libprotobuf-c)
 DHCPV6_CFLAGS := $(CFLAGS) -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c)
 DHCPV6_LDLIBS := $(shell pkg-config --libs libprotobuf-c)
 
+# dns_fuzz.c likewise needs the generated protobuf-c headers/lib (cf_dns.h
+# pulls in cloudflow/v1/dns.pb-c.h) on top of decap_fuzz's plain
+# -I$(PACKET_DIR).
+DNS_CFLAGS := $(CFLAGS) -I$(CODEC_GEN_DIR) $(shell pkg-config --cflags libprotobuf-c)
+DNS_LDLIBS := $(shell pkg-config --libs libprotobuf-c)
+
 BIN := decap_fuzz
 DHCPV4_BIN := dhcpv4_fuzz
 DHCPV6_BIN := dhcpv6_fuzz
+DNS_BIN := dns_fuzz
 
 .PHONY: all clean
 
-all: $(BIN) $(DHCPV4_BIN) $(DHCPV6_BIN)
+all: $(BIN) $(DHCPV4_BIN) $(DHCPV6_BIN) $(DNS_BIN)
 
 $(PACKET_LIB):
 	$(MAKE) -C $(PACKET_DIR) all
@@ -52,5 +59,8 @@ $(DHCPV4_BIN): dhcpv4_fuzz.c $(PACKET_LIB) $(CODEC_LIB)
 $(DHCPV6_BIN): dhcpv6_fuzz.c $(PACKET_LIB) $(CODEC_LIB)
 	$(CC) $(DHCPV6_CFLAGS) -o $@ dhcpv6_fuzz.c $(PACKET_LIB) $(CODEC_LIB) $(DHCPV6_LDLIBS)
 
+$(DNS_BIN): dns_fuzz.c $(PACKET_LIB) $(CODEC_LIB)
+	$(CC) $(DNS_CFLAGS) -o $@ dns_fuzz.c $(PACKET_LIB) $(CODEC_LIB) $(DNS_LDLIBS)
+
 clean:
-	rm -f $(BIN) $(DHCPV4_BIN) $(DHCPV6_BIN)
+	rm -f $(BIN) $(DHCPV4_BIN) $(DHCPV6_BIN) $(DNS_BIN)

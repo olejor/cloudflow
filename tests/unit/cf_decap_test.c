@@ -23,7 +23,8 @@
 
 static size_t put_bytes(uint8_t *buf, size_t off, const void *src, size_t n)
 {
-    memcpy(buf + off, src, n);
+    if (n != 0)                 /* memcpy(dst, NULL, 0) is UB; a zero-length */
+        memcpy(buf + off, src, n); /* copy (e.g. an empty TCP payload) is a no-op */
     return off + n;
 }
 
@@ -109,6 +110,26 @@ static size_t put_udp(uint8_t *buf, size_t off, uint16_t sport, uint16_t dport,
     off = put_u16(buf, off, dport);
     off = put_u16(buf, off, (uint16_t)(8 + payload_len));
     off = put_u16(buf, off, checksum);
+    off = put_bytes(buf, off, payload, payload_len);
+    return off;
+}
+
+/* A minimal 20-byte TCP header (no options), followed by `payload`. The
+ * data-offset high nibble encodes the header length in 32-bit words; 5 words
+ * = the 20-byte minimum. `flags` is the raw FIN/SYN/RST/PSH/ACK/... byte. */
+static size_t put_tcp(uint8_t *buf, size_t off, uint16_t sport, uint16_t dport,
+                       uint32_t seq, uint8_t flags, const uint8_t *payload,
+                       size_t payload_len)
+{
+    off = put_u16(buf, off, sport);
+    off = put_u16(buf, off, dport);
+    off = put_u32(buf, off, seq);
+    off = put_u32(buf, off, 0);       /* ack number, ignored by decap */
+    off = put_u8(buf, off, 0x50);     /* data offset 5 words (20 bytes), reserved 0 */
+    off = put_u8(buf, off, flags);
+    off = put_u16(buf, off, 0);       /* window, ignored by decap */
+    off = put_u16(buf, off, 0);       /* checksum, ignored by decap */
+    off = put_u16(buf, off, 0);       /* urgent pointer, ignored by decap */
     off = put_bytes(buf, off, payload, payload_len);
     return off;
 }
@@ -392,6 +413,184 @@ static void test_truncation_sweep_ipv6(void)
     assert_truncation_safe(frame, off);
 }
 
+/* ---- cf_decap_tcp (single-segment, WP-DNS02) --------------------------
+ *
+ * A DNS-over-TCP payload: the 2-byte big-endian length prefix plus a short
+ * DNS-shaped message. cf_decap is protocol-agnostic -- it exposes the whole
+ * thing as the raw TCP payload and does NOT interpret the length prefix; the
+ * DNS layer (a later WP) does that.
+ */
+static const uint8_t DNS_TCP_PAYLOAD[] = {
+    0x00, 0x0c,             /* length prefix: 12 bytes of DNS follow */
+    0x12, 0x34,             /* dns transaction id */
+    0x01, 0x00,             /* flags: standard query, RD */
+    0x00, 0x01,             /* qdcount = 1 */
+    0x00, 0x00,             /* ancount = 0 */
+    0x00, 0x00,             /* nscount = 0 */
+    0x00, 0x00              /* arcount = 0 */
+};
+
+static void test_ipv4_tcp_dns_port53(void)
+{
+    uint8_t frame[128];
+    size_t off = 0;
+    cf_decap_tcp_t out;
+
+    off = put_eth(frame, off, 0x0800);
+    off = put_ipv4(frame, off, 6 /* TCP */, 0, 0x88 /* DSCP 34 */, 64,
+                    V4_SRC, V4_DST,
+                    (uint16_t)(20 + 20 + sizeof(DNS_TCP_PAYLOAD)));
+    off = put_tcp(frame, off, 5300, 53, 0xDEADBEEFu, 0x18 /* PSH+ACK */,
+                   DNS_TCP_PAYLOAD, sizeof(DNS_TCP_PAYLOAD));
+
+    CU_ASSERT_EQUAL(cf_decap_tcp(frame, off, &out), CF_DECAP_OK);
+    CU_ASSERT_EQUAL(out.ip_version, 4);
+    CU_ASSERT_EQUAL(out.next_header, 6);
+    CU_ASSERT_EQUAL(out.src_port, 5300);
+    CU_ASSERT_EQUAL(out.dst_port, 53);
+    CU_ASSERT_EQUAL(out.seq, 0xDEADBEEFu);
+    CU_ASSERT_EQUAL(out.tcp_flags, 0x18);
+    CU_ASSERT_EQUAL(out.payload_len, sizeof(DNS_TCP_PAYLOAD));
+    CU_ASSERT_EQUAL(memcmp(out.payload, DNS_TCP_PAYLOAD,
+                            sizeof(DNS_TCP_PAYLOAD)), 0);
+}
+
+static void test_ipv6_tcp(void)
+{
+    uint8_t frame[128];
+    size_t off = 0;
+    cf_decap_tcp_t out;
+
+    off = put_eth(frame, off, 0x86DD);
+    off = put_ipv6(frame, off, 6 /* TCP */, 64, V6_SRC, V6_DST,
+                    (uint16_t)(20 + sizeof(DNS_TCP_PAYLOAD)));
+    off = put_tcp(frame, off, 5300, 53, 1, 0x10 /* ACK */,
+                   DNS_TCP_PAYLOAD, sizeof(DNS_TCP_PAYLOAD));
+
+    CU_ASSERT_EQUAL(cf_decap_tcp(frame, off, &out), CF_DECAP_OK);
+    CU_ASSERT_EQUAL(out.ip_version, 6);
+    CU_ASSERT_EQUAL(memcmp(out.src_ip, V6_SRC, 16), 0);
+    CU_ASSERT_EQUAL(memcmp(out.dst_ip, V6_DST, 16), 0);
+    CU_ASSERT_EQUAL(out.next_header, 6);
+    CU_ASSERT_EQUAL(out.dst_port, 53);
+    CU_ASSERT_EQUAL(out.payload_len, sizeof(DNS_TCP_PAYLOAD));
+    CU_ASSERT_EQUAL(memcmp(out.payload, DNS_TCP_PAYLOAD,
+                            sizeof(DNS_TCP_PAYLOAD)), 0);
+}
+
+static void test_ipv4_tcp_single_vlan(void)
+{
+    uint8_t frame[128];
+    size_t off = 0;
+    cf_decap_tcp_t out;
+
+    off = put_eth(frame, off, 0x8100);
+    off = put_vlan_tag(frame, off, 77, 0x0800);
+    off = put_ipv4(frame, off, 6 /* TCP */, 0, 0, 64, V4_SRC, V4_DST,
+                    (uint16_t)(20 + 20 + sizeof(DNS_TCP_PAYLOAD)));
+    off = put_tcp(frame, off, 5300, 53, 1, 0x10, DNS_TCP_PAYLOAD,
+                   sizeof(DNS_TCP_PAYLOAD));
+
+    CU_ASSERT_EQUAL(cf_decap_tcp(frame, off, &out), CF_DECAP_OK);
+    CU_ASSERT_EQUAL(out.vlan_count, 1);
+    CU_ASSERT_EQUAL(out.vlan_ids[0], 77);
+    CU_ASSERT_EQUAL(out.ip_version, 4);
+    CU_ASSERT_EQUAL(out.dst_port, 53);
+    CU_ASSERT_EQUAL(out.payload_len, sizeof(DNS_TCP_PAYLOAD));
+}
+
+static void test_ipv4_tcp_truncated_header(void)
+{
+    uint8_t frame[128];
+    size_t off = 0;
+    cf_decap_tcp_t out;
+
+    off = put_eth(frame, off, 0x0800);
+    off = put_ipv4(frame, off, 6 /* TCP */, 0, 0, 64, V4_SRC, V4_DST,
+                    20 + 20);
+    /* Only 10 bytes of the 20-byte TCP header are actually present. */
+    memset(frame + off, 0, 10);
+    off += 10;
+
+    CU_ASSERT_EQUAL(cf_decap_tcp(frame, off, &out), CF_DECAP_TRUNCATED);
+}
+
+static void test_ipv4_tcp_data_offset_past_segment(void)
+{
+    uint8_t frame[128];
+    size_t off = 0;
+    cf_decap_tcp_t out;
+    size_t tcp_off;
+
+    off = put_eth(frame, off, 0x0800);
+    off = put_ipv4(frame, off, 6 /* TCP */, 0, 0, 64, V4_SRC, V4_DST,
+                    20 + 20);
+    tcp_off = off;
+    off = put_tcp(frame, off, 5300, 53, 1, 0x10, NULL, 0);
+    /* Rewrite the data-offset nibble to claim a 60-byte (15-word) header,
+     * far past the 20 bytes actually captured. */
+    frame[tcp_off + 12] = 0xF0;
+
+    CU_ASSERT_EQUAL(cf_decap_tcp(frame, off, &out), CF_DECAP_TRUNCATED);
+}
+
+static void test_udp_frame_to_tcp_not_tcp(void)
+{
+    uint8_t frame[128];
+    size_t off = 0;
+    cf_decap_tcp_t out;
+
+    off = put_eth(frame, off, 0x0800);
+    off = put_ipv4(frame, off, 17 /* UDP */, 0, 0, 64, V4_SRC, V4_DST,
+                    (uint16_t)(20 + 8 + sizeof(PAYLOAD)));
+    off = put_udp(frame, off, 68, 67, 0x1234, PAYLOAD, sizeof(PAYLOAD));
+
+    CU_ASSERT_EQUAL(cf_decap_tcp(frame, off, &out), CF_DECAP_NOT_TCP);
+    CU_ASSERT_EQUAL(out.next_header, 17);
+}
+
+static void test_ipv4_tcp_nonfirst_fragment_not_tcp(void)
+{
+    uint8_t frame[128];
+    size_t off = 0;
+    cf_decap_tcp_t out;
+    uint16_t flags_frag = 9; /* MF=0, fragment offset = 9 (nonzero) */
+
+    off = put_eth(frame, off, 0x0800);
+    off = put_ipv4(frame, off, 6 /* TCP */, flags_frag, 0, 64, V4_SRC, V4_DST,
+                    20 + 40);
+    /* A non-first fragment carries no TCP header; pad with filler bytes. */
+    memset(frame + off, 0, 40);
+    off += 40;
+
+    CU_ASSERT_EQUAL(cf_decap_tcp(frame, off, &out), CF_DECAP_NOT_TCP);
+    CU_ASSERT_EQUAL(out.fragmented, 1);
+    CU_ASSERT_EQUAL(out.fragment_offset, 9);
+}
+
+/* Regression: an existing-style UDP frame must still decode correctly through
+ * cf_decap_udp after the shared-walk refactor. */
+static void test_udp_still_decodes_after_refactor(void)
+{
+    uint8_t frame[128];
+    size_t off = 0;
+    cf_decap_udp_t out;
+
+    off = put_eth(frame, off, 0x0800);
+    off = put_ipv4(frame, off, 17, 0, 0x88, 64, V4_SRC, V4_DST,
+                    (uint16_t)(20 + 8 + sizeof(PAYLOAD)));
+    off = put_udp(frame, off, 68, 67, 0x1234, PAYLOAD, sizeof(PAYLOAD));
+
+    CU_ASSERT_EQUAL(cf_decap_udp(frame, off, &out), CF_DECAP_OK);
+    CU_ASSERT_EQUAL(out.ip_version, 4);
+    CU_ASSERT_EQUAL(out.next_header, 17);
+    CU_ASSERT_EQUAL(out.src_port, 68);
+    CU_ASSERT_EQUAL(out.dst_port, 67);
+    CU_ASSERT_EQUAL(out.dscp, 0x88 >> 2);
+    CU_ASSERT_EQUAL(out.payload_len, sizeof(PAYLOAD));
+    CU_ASSERT_EQUAL(memcmp(out.payload, PAYLOAD, sizeof(PAYLOAD)), 0);
+}
+
 /* ---- cf_ipfmt ----------------------------------------------------------- */
 
 static void test_format_mac(void)
@@ -457,6 +656,20 @@ int main(void)
                       test_unknown_ethertype_unsupported) ||
         !CU_add_test(suite, "truncation sweep IPv4", test_truncation_sweep_ipv4) ||
         !CU_add_test(suite, "truncation sweep IPv6", test_truncation_sweep_ipv6) ||
+        !CU_add_test(suite, "IPv4 TCP dst-port 53 (DNS-over-TCP payload)",
+                      test_ipv4_tcp_dns_port53) ||
+        !CU_add_test(suite, "IPv6 TCP", test_ipv6_tcp) ||
+        !CU_add_test(suite, "single-VLAN IPv4 TCP", test_ipv4_tcp_single_vlan) ||
+        !CU_add_test(suite, "truncated TCP header -> TRUNCATED",
+                      test_ipv4_tcp_truncated_header) ||
+        !CU_add_test(suite, "TCP data offset past segment -> TRUNCATED",
+                      test_ipv4_tcp_data_offset_past_segment) ||
+        !CU_add_test(suite, "UDP frame to cf_decap_tcp -> NOT_TCP",
+                      test_udp_frame_to_tcp_not_tcp) ||
+        !CU_add_test(suite, "IPv4 non-first fragment TCP -> NOT_TCP",
+                      test_ipv4_tcp_nonfirst_fragment_not_tcp) ||
+        !CU_add_test(suite, "UDP still decodes after refactor",
+                      test_udp_still_decodes_after_refactor) ||
         !CU_add_test(suite, "cf_format_mac", test_format_mac) ||
         !CU_add_test(suite, "cf_format_ip v4", test_format_ip_v4) ||
         !CU_add_test(suite, "cf_format_ip v6 zero-run compression",
