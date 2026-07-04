@@ -118,7 +118,8 @@ Numbered `DNS-D1…`, continuing the spirit of `docs/architecture.md`'s
   is unmapped or the server side is indeterminate. Because it keys on the
   server IP, both a client→recursor and a dnsdist→recursor transaction resolve
   to the same label. It is an additional operator dimension and does **not**
-  change the leg `role`; a later change routes the Splunk sourcetype by it.
+  change the leg `role`; the Splunk event sink now routes the sourcetype by it
+  (`cloudflow:dns:<service_role>`, WP-DNS11b — see docs/splunk-output.md).
 - **DNS-D8 — Bounded everything, visible loss.** The DNS source adds the
   correlation table to the existing bounded queues. Volume is far higher than
   DHCP, so the source ships first-class sampling/emit policy

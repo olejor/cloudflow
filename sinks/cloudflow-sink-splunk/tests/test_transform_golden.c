@@ -133,6 +133,51 @@ static void test_dns_transaction(void)
     run_case("dns_transaction", "dns_transaction", "cloudflow:v1:wire:dns", 0);
 }
 
+static void test_dns_transaction_service_role(void)
+{
+    /* Same fully-correlated DNS transaction as test_dns_transaction, but the
+     * transaction carries an operator-assigned service_role. The event sink
+     * must route the sourcetype to cloudflow:dns:<service_role> (WP-DNS11b,
+     * docs/splunk-output.md); the base dns golden above must stay unchanged.
+     * Built by reusing the dns_transaction fixture and tagging service_role,
+     * so the fixture is identical in spirit to the untagged one. */
+    uint8_t *buf;
+    size_t len = 0;
+    Cloudflow__V1__CloudFlowEvent *ev;
+    cf_config_t s;
+    char *line;
+    char *orig_role;
+    FILE *out;
+
+    buf = read_file("tests/fixtures/dns_transaction.pb", &len);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(buf);
+    ev = cloudflow__v1__cloud_flow_event__unpack(NULL, len, buf);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(ev);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(ev->dns_transaction);
+
+    orig_role = ev->dns_transaction->service_role;
+    ev->dns_transaction->service_role = (char *)"recursor";
+
+    make_config(&s, 0);
+    line = cf_transform_render_hec_line(ev, "cloudflow:v1:wire:dns", &s);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(line);
+
+    out = fopen("build/golden_out_dns_transaction_role.json", "wb");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(out);
+    fprintf(out, "%s\n", line);
+    fclose(out);
+
+    CU_ASSERT_TRUE(json_equal("build/golden_out_dns_transaction_role.json",
+                              "tests/golden/dns_transaction_role.json"));
+
+    /* Restore the unpacked pointer so free_unpacked frees the real allocation
+     * (not our string literal). */
+    ev->dns_transaction->service_role = orig_role;
+    free(line);
+    cloudflow__v1__cloud_flow_event__free_unpacked(ev, NULL);
+    free(buf);
+}
+
 static void test_raw_payload_kept_when_configured(void)
 {
     /* With include_raw_payload=1 the field must appear. */
@@ -169,6 +214,7 @@ int main(void)
         !CU_add_test(suite, "dhcpv4 raw payload stripped golden", test_dhcpv4_raw_stripped) ||
         !CU_add_test(suite, "dhcpv6 solicit golden", test_dhcpv6_solicit) ||
         !CU_add_test(suite, "dns transaction golden", test_dns_transaction) ||
+        !CU_add_test(suite, "dns transaction service_role golden", test_dns_transaction_service_role) ||
         !CU_add_test(suite, "raw payload kept when configured", test_raw_payload_kept_when_configured)) {
         CU_cleanup_registry();
         return (int)CU_get_error();
