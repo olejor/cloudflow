@@ -20,7 +20,7 @@
 #include "cf_sync.h"
 #include "cf_time.h"
 
-#include "rx_reader.h" /* CF_PACKET_FLAG_TRUNCATED */
+#include "cf_rx_stats.h" /* CF_PACKET_FLAG_TRUNCATED */
 
 /* ------------------------------------------------------------------------
  * Small heap-string/-bytes helpers. Every `char *`/ProtobufCBinaryData field

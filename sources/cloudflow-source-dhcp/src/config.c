@@ -647,7 +647,7 @@ cf_source_config_t *cf_config_load(const char *path)
     }
 
     /* D7: capture.filter is informational only -- the builtin VLAN-aware
-     * cBPF filter (rx_reader.c) is always used regardless of this string. */
+     * cBPF filter (dhcp_bpf.c) is always used regardless of this string. */
     if (cfg->capture_filter && cfg->capture_filter[0] != '\0') {
         cf_log(CF_LOG_WARN,
                "config: capture.filter is informational in v0.1 (D7); the builtin DHCP BPF "

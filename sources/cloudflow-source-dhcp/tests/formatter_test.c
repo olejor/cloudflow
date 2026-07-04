@@ -22,8 +22,8 @@
 #include "cf_stats.h"
 #include "cloudflow.h"
 #include "formatter.h"
-#include "pcap_replay.h"
-#include "queue_policy.h"
+#include "cf_pcap_replay.h"
+#include "cf_queue_policy.h"
 #include "source_stats.h"
 
 #include "cloudflow/v1/envelope.pb-c.h"
@@ -54,7 +54,7 @@ static int load_fixture_frame(const char *name, cf_packet_item_t *out)
 {
     char path[512];
     cf_queue_t q;
-    cf_source_stats_t st;
+    cf_rx_stats_t st;
     long n;
     int rc = -1;
 

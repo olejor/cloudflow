@@ -1,14 +1,13 @@
-#include "queue_policy.h"
+#include "cf_queue_policy.h"
 
 #include "cf_stats.h"
 #include "cf_sync.h"
 #include "cf_time.h"
 
 /* Elements that ever flow through this helper are fixed-size structs from
- * cloudflow.h (cf_packet_item_t today, cf_event_item_t once WP-10 lands),
- * both well under this bound. It exists so a hostile/garbage element_size
- * can never turn the drop_oldest victim buffer below into an unbounded
- * stack allocation. */
+ * cloudflow.h (cf_packet_item_t, cf_event_item_t), both well under this
+ * bound. It exists so a hostile/garbage element_size can never turn the
+ * drop_oldest victim buffer below into an unbounded stack allocation. */
 #define CF_QUEUE_POLICY_MAX_ELEMENT_SIZE (64u * 1024u)
 
 #define CF_QUEUE_POLICY_BLOCK_SLEEP_NS (1000L * 1000L) /* 1 ms, per the WP-08 spec */

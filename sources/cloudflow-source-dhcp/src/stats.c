@@ -24,10 +24,10 @@ void cf_stats_report(cf_source_stats_t *stats, cf_redis_stats_t *redis_stats,
     char b_redisdepth_live[24];
 
     /* rx-reader / pcap-replay counters. */
-    unsigned long packets_received = read_counter(&stats->packets_received_total, reset_on_report);
-    unsigned long packets_dropped = read_counter(&stats->packets_dropped_total, reset_on_report);
-    unsigned long rx_queue_drop = read_counter(&stats->rx_queue_drop_total, reset_on_report);
-    unsigned long packets_truncated = read_counter(&stats->packets_truncated_total, reset_on_report);
+    unsigned long packets_received = read_counter(&stats->rx.packets_received_total, reset_on_report);
+    unsigned long packets_dropped = read_counter(&stats->rx.packets_dropped_total, reset_on_report);
+    unsigned long rx_queue_drop = read_counter(&stats->rx.rx_queue_drop_total, reset_on_report);
+    unsigned long packets_truncated = read_counter(&stats->rx.packets_truncated_total, reset_on_report);
 
     /* formatter counters. */
     unsigned long events_formatted = read_counter(&stats->events_formatted_total, reset_on_report);
@@ -46,7 +46,7 @@ void cf_stats_report(cf_source_stats_t *stats, cf_redis_stats_t *redis_stats,
      * re-sampled from the live queues so the line is current as of emission
      * (the per-thread sampled gauges in `stats` lag by up to one tick). */
     unsigned long rx_queue_depth = q_rx ? (unsigned long)cf_queue_length(q_rx)
-                                        : CF_ATOMIC_READ(stats->rx_queue_depth);
+                                        : CF_ATOMIC_READ(stats->rx.rx_queue_depth);
     unsigned long formatter_queue_depth = CF_ATOMIC_READ(stats->formatter_queue_depth);
     unsigned long redis_queue_depth = q_redis ? (unsigned long)cf_queue_length(q_redis) : 0;
 

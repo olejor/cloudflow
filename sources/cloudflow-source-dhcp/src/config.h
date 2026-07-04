@@ -32,7 +32,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "queue_policy.h"
+#include "cf_queue_policy.h"
 
 typedef struct {
     char *service_name;
