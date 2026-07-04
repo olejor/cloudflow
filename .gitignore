@@ -29,6 +29,13 @@ target/
 # ("Fixture corpus").
 !/tests/fixtures/dhcp/*.pcap
 
+# ...and likewise the WP-DNS09 DNS fixture corpus: synthetically generated
+# (never captured) by tests/fixtures/dns/generate_fixtures.py from
+# documentation address space only, committed on purpose so the fuzz
+# seed extraction and correlation replay tests don't need scapy at test
+# time -- see docs/dns-source.md ("Fixture and test policy").
+!/tests/fixtures/dns/*.pcap
+
 # editor files
 .vscode/
 .idea/
