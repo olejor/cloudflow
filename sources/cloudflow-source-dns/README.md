@@ -21,6 +21,67 @@ rx-reader -> [pkt queue] -> parse + correlate -> [event queue] -> redis-producer
 Parse and correlate share one thread so the bounded pending-query table needs
 no locking (see `docs/dns-source.md`, "Correlation stage").
 
+## Running
+
+```sh
+# Live capture (needs CAP_NET_RAW to open the AF_PACKET ring):
+cloudflow-source-dns -c /etc/cloudflow/dns-source.yaml
+
+# Offline replay of a classic pcap through the whole pipeline, then drain and
+# exit (integration/M-DNS1 mode):
+cloudflow-source-dns -c /etc/cloudflow/dns-source.yaml \
+    --replay tests/fixtures/dns/q_a_query.pcap
+
+cloudflow-source-dns --version   # print version and exit
+cloudflow-source-dns -h          # usage
+```
+
+`-c <config>` is required in both modes (it supplies the Redis endpoints, queue
+sizing, and the correlation/classifier knobs even when the input is a pcap;
+`--replay` only swaps the input stage). A `SIGINT`/`SIGTERM` triggers a clean
+reverse-order shutdown (reader → event stage → producer) and exits 0. If Redis
+is unreachable the producer logs a backoff warning and keeps the pipeline
+running; on shutdown any still-queued events are counted lost, never silently
+dropped.
+
+## Configuration
+
+The YAML schema is documented, field by field, in
+`configs/examples/dns-source.yaml`. Sections: `service` (name / source_host),
+`capture` (interface / method / snaplen / filter), `queues` (the two bounded
+SPSC queue capacities + `on_full` policy), `redis` (endpoints, `maxlen_approx`,
+XADD batch/flush), `dns` (the DNS-D5/D7/D8 knobs: `pending_table_capacity`,
+`query_timeout_ms`, `on_table_full`, `local_service_addresses`,
+`backend_addresses`, `emit_policy` + `sample_denominator`), and `stats`
+(`interval_s` / `reset_on_report`). Missing keys fall back to the defaults in
+that example; unknown keys are logged and ignored.
+
+The DNS source writes exactly one stream, `cloudflow:v1:wire:dns`
+(`CF_STREAM_DNS`); `redis.stream_dns` and `capture.filter` are informational
+only (a mismatch is logged as a warning) — the builtin VLAN-aware udp/53 +
+tcp/53 cBPF filter is always used.
+
+**Secrets are never in the YAML.** Redis/Splunk credentials come from the
+process environment (the systemd unit's `EnvironmentFile`). Three non-secret
+environment overrides are honored on top of the file: `CF_REDIS_ENDPOINTS`
+(comma-separated `host:port` list), `CF_INTERFACE`, and `CF_SOURCE_HOST`.
+
+> **Leg classifier note (DNS-D7).** The local-service address set is currently
+> the configured `dns.local_service_addresses` list only; the "auto-derive
+> local addresses from the capture interface" helper is not implemented yet, so
+> list this host's DNS service IPs explicitly.
+
+## systemd
+
+`systemd/cloudflow-source-dns.service` runs the binary as the unprivileged
+`cloudflow` user with `AmbientCapabilities=CAP_NET_RAW` (open the capture
+socket) and `CAP_SYS_NICE` (best-effort rx-reader priority; optional),
+`NoNewPrivileges=yes`, and `Restart=on-failure`. Secrets are loaded from
+`EnvironmentFile=/etc/cloudflow/dns-source.env` (a root-owned, mode-0600
+`KEY=VALUE` file). Install the binary to `/usr/local/bin`, the config to
+`/etc/cloudflow/dns-source.yaml`, then `systemctl enable --now
+cloudflow-source-dns`.
+
 ## Layout and build
 
 ```text
