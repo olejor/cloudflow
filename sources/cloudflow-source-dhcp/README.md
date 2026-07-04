@@ -115,6 +115,20 @@ always sampled live.
 `-c /etc/cloudflow/dhcp-source.yaml`, `AmbientCapabilities=CAP_NET_RAW
 CAP_SYS_NICE`, `NoNewPrivileges=yes`, and `Restart=on-failure`.
 
+The unit is sandboxed (project review G4): `ProtectSystem=strict` +
+`PrivateTmp=yes` make the whole filesystem read-only apart from a private
+`/tmp` (the daemon writes nothing to disk — logs go to journald — so no
+`ReadWritePaths` are declared), plus `ProtectHome`, `ProtectControlGroups`,
+`ProtectKernel{Modules,Tunables}`, `LockPersonality`, `MemoryDenyWriteExecute`
+(the TPACKET_V3 ring is mmap'd read/write, never executable, so W^X is safe),
+`RestrictSUIDSGID`, `RestrictNamespaces`,
+`SystemCallArchitectures=native`, and `SystemCallFilter=@system-service`
+(covers the `mmap`/`socket`/`setsockopt`/`bind`/`recvmsg` the capture ring
+needs). Because it is a capture *source*, it keeps `CAP_NET_RAW` (+`CAP_SYS_NICE`)
+via a tight `CapabilityBoundingSet=CAP_NET_RAW CAP_SYS_NICE` and allows
+`RestrictAddressFamilies=AF_PACKET AF_INET AF_INET6 AF_UNIX` — sinks are stricter
+(no raw socket, empty capability set, no `AF_PACKET`).
+
 ## WP-08: rx-reader capture module + pcap replay
 
 `src/rx_reader.{h,c}` and `src/pcap_replay.{h,c}` implement the first stage

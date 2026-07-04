@@ -208,3 +208,16 @@ absent):
 See `systemd/cloudflow-sink-splunk.service`. It reads the HEC token from
 `EnvironmentFile=/etc/cloudflow/splunk-sink.env` (a non-committed file
 containing `SPLUNK_HEC_TOKEN=...`) and restarts on failure.
+
+The unit is sandboxed (project review G4) and, being an egress *sink*, is
+stricter than the capture sources: it makes only outbound HTTP(S) (to the HEC)
+and Redis TCP connections, so it opens **no raw socket** — it drops every
+capability with an empty `CapabilityBoundingSet=` and narrows
+`RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX` (no `AF_PACKET`, no
+`CAP_NET_RAW`). It shares the common hardening with the sources:
+`ProtectSystem=strict` + `PrivateTmp=yes` (whole FS read-only, private `/tmp`;
+the daemon writes nothing to disk — logs go to journald — so no
+`ReadWritePaths`), `ProtectHome`, `ProtectControlGroups`,
+`ProtectKernel{Modules,Tunables}`, `LockPersonality`, `MemoryDenyWriteExecute`,
+`RestrictRealtime`, `RestrictSUIDSGID`, `RestrictNamespaces`,
+`SystemCallArchitectures=native`, and `SystemCallFilter=@system-service`.

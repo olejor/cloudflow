@@ -21,5 +21,28 @@ User=cloudflow
 Group=cloudflow
 NoNewPrivileges=true
 
+# --- Sandboxing (project review G4) ----------------------------------------
+# HTTP(S) egress + Redis TCP only: no raw sockets, so drop ALL capabilities.
+# Stricter than the capture sources, which must keep CAP_NET_RAW.
+CapabilityBoundingSet=
+# AF_INET/6: HTTP(S) to ClickHouse + Redis TCP. AF_UNIX: NSS / journald.
+# No AF_PACKET -- this daemon never opens a raw socket.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+PrivateTmp=yes
+# Whole FS read-only; the daemon writes nothing to disk (logs -> journald),
+# so no ReadWritePaths are needed. It still reads /etc/cloudflow config r/o.
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
 [Install]
 WantedBy=multi-user.target
