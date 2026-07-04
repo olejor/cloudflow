@@ -37,9 +37,10 @@ redis:
     - redis01:6379
     - redis02:6379
     - redis03:6379
-  # Informational only: the producer library writes cloudflow:v1:wire:dns
-  # (CF_STREAM_DNS) regardless. A mismatch here is logged as a warning.
-  stream_dns: cloudflow:v1:wire:dns
+  # Validation/logging only, not an output override: the producer library
+  # always writes cloudflow:v1:wire:dns (CF_STREAM_DNS) regardless of this
+  # value. It is parsed solely so a mismatch is logged as a warning.
+  expected_stream_dns: cloudflow:v1:wire:dns
   # XADD MAXLEN ~ trim target; 0 disables trimming.
   maxlen_approx: 1000000
   xadd_batch_size: 100          # pipelined XADDs per flush

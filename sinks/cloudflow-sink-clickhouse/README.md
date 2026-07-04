@@ -198,3 +198,16 @@ See `systemd/cloudflow-sink-clickhouse.service`. It reads the credentials from
 `EnvironmentFile=/etc/cloudflow/clickhouse-sink.env` (a non-committed file
 containing `CLICKHOUSE_USER=...` / `CLICKHOUSE_PASSWORD=...`) and restarts on
 failure.
+
+The unit is sandboxed (project review G4) and, being an egress *sink*, is
+stricter than the capture sources: it makes only outbound HTTP(S) (to
+ClickHouse) and Redis TCP connections, so it opens **no raw socket** — it drops
+every capability with an empty `CapabilityBoundingSet=` and narrows
+`RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX` (no `AF_PACKET`, no
+`CAP_NET_RAW`). It shares the common hardening with the sources:
+`ProtectSystem=strict` + `PrivateTmp=yes` (whole FS read-only, private `/tmp`;
+the daemon writes nothing to disk — logs go to journald — so no
+`ReadWritePaths`), `ProtectHome`, `ProtectControlGroups`,
+`ProtectKernel{Modules,Tunables}`, `LockPersonality`, `MemoryDenyWriteExecute`,
+`RestrictRealtime`, `RestrictSUIDSGID`, `RestrictNamespaces`,
+`SystemCallArchitectures=native`, and `SystemCallFilter=@system-service`.

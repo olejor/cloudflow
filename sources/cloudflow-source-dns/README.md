@@ -57,9 +57,9 @@ XADD batch/flush), `dns` (the DNS-D5/D7/D8 knobs: `pending_table_capacity`,
 that example; unknown keys are logged and ignored.
 
 The DNS source writes exactly one stream, `cloudflow:v1:wire:dns`
-(`CF_STREAM_DNS`); `redis.stream_dns` and `capture.filter` are informational
-only (a mismatch is logged as a warning) — the builtin VLAN-aware udp/53 +
-tcp/53 cBPF filter is always used.
+(`CF_STREAM_DNS`); `redis.expected_stream_dns` and `capture.filter` are used for
+validation/logging only, not as overrides (a mismatch is logged as a warning) —
+the builtin VLAN-aware udp/53 + tcp/53 cBPF filter is always used.
 
 **Secrets are never in the YAML.** Redis/Splunk credentials come from the
 process environment (the systemd unit's `EnvironmentFile`). Three non-secret
@@ -81,6 +81,20 @@ socket) and `CAP_SYS_NICE` (best-effort rx-reader priority; optional),
 `KEY=VALUE` file). Install the binary to `/usr/local/bin`, the config to
 `/etc/cloudflow/dns-source.yaml`, then `systemctl enable --now
 cloudflow-source-dns`.
+
+The unit is sandboxed (project review G4): `ProtectSystem=strict` +
+`PrivateTmp=yes` make the whole filesystem read-only apart from a private
+`/tmp` (the daemon writes nothing to disk — logs go to journald — so no
+`ReadWritePaths` are declared), plus `ProtectHome`, `ProtectControlGroups`,
+`ProtectKernel{Modules,Tunables}`, `LockPersonality`, `MemoryDenyWriteExecute`
+(the TPACKET_V3 ring is mmap'd read/write, never executable, so W^X is safe),
+`RestrictSUIDSGID`, `RestrictNamespaces`,
+`SystemCallArchitectures=native`, and `SystemCallFilter=@system-service`
+(covers the `mmap`/`socket`/`setsockopt`/`bind`/`recvmsg` the capture ring
+needs). Being a capture *source*, it keeps `CAP_NET_RAW` (+`CAP_SYS_NICE`) via a
+tight `CapabilityBoundingSet=CAP_NET_RAW CAP_SYS_NICE` and allows
+`RestrictAddressFamilies=AF_PACKET AF_INET AF_INET6 AF_UNIX` — sinks are stricter
+(no raw socket, empty capability set, no `AF_PACKET`).
 
 ## Layout and build
 

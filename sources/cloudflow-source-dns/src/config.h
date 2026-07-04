@@ -21,11 +21,12 @@
  * capture.filter is informational only (DNS-D1/D7): the builtin VLAN-aware
  * udp/53 + tcp/53 cBPF filter (dns_bpf.c) is always used.
  *
- * redis.stream_dns is likewise informational: the WP-DNS producer
- * (libs/cloudflow-redis) hardcodes stream names via cf_stream_name() and has no
- * per-instance override, so this key is parsed, stored, and compared against
- * cf_stream_name(CF_STREAM_DNS) purely so a mismatch can be logged as a
- * warning. The DNS source writes exactly one stream, cloudflow:v1:wire:dns.
+ * redis.expected_stream_dns is used for validation/logging only, not as an
+ * output override: the WP-DNS producer (libs/cloudflow-redis) hardcodes stream
+ * names via cf_stream_name() and has no per-instance override, so this key is
+ * parsed, stored, and compared against cf_stream_name(CF_STREAM_DNS) purely so
+ * a mismatch can be logged as a warning. The DNS source always writes exactly
+ * one stream, cloudflow:v1:wire:dns.
  */
 
 #include <stddef.h>
@@ -59,7 +60,7 @@ typedef struct {
 
     char **redis_endpoints; /* heap array of heap "host:port" strings */
     size_t redis_endpoint_count;
-    char *redis_stream_dns; /* informational, see header comment above */
+    char *redis_expected_stream_dns; /* validation/logging only, see header comment above */
     long long redis_maxlen_approx;
     uint32_t redis_xadd_batch_size;       /* -> cf_redis_producer_config_t.pipeline_max */
     uint32_t redis_xadd_flush_interval_ms;

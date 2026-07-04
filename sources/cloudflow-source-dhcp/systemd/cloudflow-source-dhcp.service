@@ -16,5 +16,33 @@ Group=cloudflow
 AmbientCapabilities=CAP_NET_RAW CAP_SYS_NICE
 NoNewPrivileges=yes
 
+# --- Sandboxing (project review G4) ----------------------------------------
+# Drop every capability except the two the capture path genuinely uses.
+CapabilityBoundingSet=CAP_NET_RAW CAP_SYS_NICE
+# AF_PACKET: the PACKET_RX_RING capture socket. AF_INET/6: egress + Redis.
+# AF_UNIX: NSS / journald. Everything else (incl. raw IP) is denied.
+RestrictAddressFamilies=AF_PACKET AF_INET AF_INET6 AF_UNIX
+PrivateTmp=yes
+# Whole FS read-only; the daemon writes nothing to disk (logs -> journald),
+# so no ReadWritePaths are needed. It still reads /etc/cloudflow config r/o.
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+LockPersonality=yes
+# The TPACKET_V3 ring is mmap'd PROT_READ|PROT_WRITE (never PROT_EXEC), so W^X
+# does not interfere with the capture ring.
+MemoryDenyWriteExecute=yes
+# RestrictRealtime is deliberately NOT set on the capture sources: the rx-reader
+# uses best-effort SCHED_FIFO (that is what CAP_SYS_NICE is granted for) to keep
+# capture latency low under load. The sinks, which never need realtime, do set
+# RestrictRealtime=yes.
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+# @system-service covers mmap/socket/setsockopt/bind/recvmsg the ring needs.
+SystemCallFilter=@system-service
+
 [Install]
 WantedBy=multi-user.target

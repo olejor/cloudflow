@@ -336,7 +336,7 @@ queues:
 redis:
   endpoints:
     - ${REDIS_HOST}:${REDIS_PORT}
-  stream_dns: ${STREAM_DNS}
+  expected_stream_dns: ${STREAM_DNS}
   maxlen_approx: 1000000
   xadd_batch_size: 100
   xadd_flush_interval_ms: 10

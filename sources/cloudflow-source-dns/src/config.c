@@ -232,7 +232,7 @@ static void set_defaults(cf_dns_config_t *cfg)
     for (i = 0; i < cfg->redis_endpoint_count; i++)
         cfg->redis_endpoints[i] = cfg_strdup(CF_CFG_DEFAULT_REDIS_ENDPOINTS[i]);
 
-    cfg->redis_stream_dns = cfg_strdup(CF_CFG_DEFAULT_STREAM_DNS);
+    cfg->redis_expected_stream_dns = cfg_strdup(CF_CFG_DEFAULT_STREAM_DNS);
     cfg->redis_maxlen_approx = CF_CFG_DEFAULT_MAXLEN_APPROX;
     cfg->redis_xadd_batch_size = CF_CFG_DEFAULT_XADD_BATCH_SIZE;
     cfg->redis_xadd_flush_interval_ms = CF_CFG_DEFAULT_XADD_FLUSH_INTERVAL_MS;
@@ -558,9 +558,9 @@ static void parse_redis_section(yaml_document_t *doc, yaml_node_t *node, cf_dns_
         if (strcmp(k, "endpoints") == 0) {
             parse_str_list(doc, val, "redis.endpoints", &cfg->redis_endpoints,
                            &cfg->redis_endpoint_count);
-        } else if (strcmp(k, "stream_dns") == 0) {
-            free(cfg->redis_stream_dns);
-            cfg->redis_stream_dns = cfg_strdup(v);
+        } else if (strcmp(k, "expected_stream_dns") == 0) {
+            free(cfg->redis_expected_stream_dns);
+            cfg->redis_expected_stream_dns = cfg_strdup(v);
         } else if (strcmp(k, "maxlen_approx") == 0) {
             long long parsed;
 
@@ -776,7 +776,7 @@ void cf_config_free(cf_dns_config_t *cfg)
     free(cfg->capture_filter);
 
     free_str_list(cfg->redis_endpoints, cfg->redis_endpoint_count);
-    free(cfg->redis_stream_dns);
+    free(cfg->redis_expected_stream_dns);
 
     free_str_list(cfg->dns_local_service_addresses, cfg->dns_local_service_address_count);
     free_str_list(cfg->dns_backend_addresses, cfg->dns_backend_address_count);
@@ -897,13 +897,13 @@ cf_dns_config_t *cf_config_load(const char *path)
                "configured_filter", cfg->capture_filter, NULL);
     }
 
-    /* redis.stream_dns is likewise informational -- warn if it does not match
-     * what the producer library actually uses (DNS-D3). */
-    if (strcmp(cfg->redis_stream_dns, cf_stream_name(CF_STREAM_DNS)) != 0) {
+    /* redis.expected_stream_dns is used for validation/logging only -- warn if
+     * it does not match what the producer library actually uses (DNS-D3). */
+    if (strcmp(cfg->redis_expected_stream_dns, cf_stream_name(CF_STREAM_DNS)) != 0) {
         cf_log(CF_LOG_WARN,
-               "config: redis.stream_dns does not match the built-in stream name and is "
-               "informational only",
-               "configured", cfg->redis_stream_dns, "actual", cf_stream_name(CF_STREAM_DNS), NULL);
+               "config: redis.expected_stream_dns does not match the built-in stream name "
+               "and is used for validation/logging only",
+               "configured", cfg->redis_expected_stream_dns, "actual", cf_stream_name(CF_STREAM_DNS), NULL);
     }
 
     /* PREDICATE emit policy with no denominator degrades to "keep all routine

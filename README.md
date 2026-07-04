@@ -13,7 +13,8 @@ Application self-reported metrics are not the source of truth in CloudFlow. Clou
 ## Current status
 
 **v0.1 and v0.2 are implemented and tested**: wire-observed DHCPv4/DHCPv6 and
-DNS sources, Redis Streams transport, and a C Splunk sink.
+DNS sources, Redis Streams transport, and three C sinks — the Splunk event
+sink, the Splunk metrics sink, and the ClickHouse sink.
 
 ```text
 RX ring packet capture
@@ -26,9 +27,11 @@ RX ring packet capture
 Services:
 
 ```text
-cloudflow-source-dhcp    (C, implemented)
-cloudflow-source-dns     (C, implemented)
-cloudflow-sink-splunk    (C, implemented)
+cloudflow-source-dhcp          (C, implemented)
+cloudflow-source-dns           (C, implemented)
+cloudflow-sink-splunk          (C, implemented)
+cloudflow-sink-splunk-metrics  (C, implemented)
+cloudflow-sink-clickhouse      (C, implemented)
 ```
 
 Redis streams:
@@ -43,6 +46,8 @@ Redis consumer groups:
 
 ```text
 sink-splunk
+sink-splunk-metrics
+sink-clickhouse
 ```
 
 The **wire-observed DNS source (v0.2)** captures udp/53 and tcp/53, parses
@@ -67,6 +72,8 @@ cloudflow/
 │   ├── dhcp-source.md
 │   ├── dns-source.md
 │   ├── splunk-output.md
+│   ├── splunk-metrics.md
+│   ├── clickhouse-sink.md
 │   ├── failure-modes.md
 │   └── building-and-testing.md
 │
@@ -81,9 +88,10 @@ cloudflow/
 ├── libs/
 │   ├── cloudflow-core/
 │   ├── cloudflow-codec/
-│   ├── cloudflow-redis/
 │   ├── cloudflow-packet/
-│   └── cloudflow-capture/
+│   ├── cloudflow-redis/
+│   ├── cloudflow-capture/
+│   └── cloudflow-sink-core/
 │
 ├── sources/
 │   ├── cloudflow-source-dhcp/
@@ -98,8 +106,21 @@ cloudflow/
 │       └── README.md
 │
 ├── sinks/
-│   └── cloudflow-sink-splunk/
+│   ├── cloudflow-sink-splunk/
+│   │   ├── src/
+│   │   ├── config/
+│   │   ├── systemd/
+│   │   ├── tests/
+│   │   └── README.md
+│   ├── cloudflow-sink-splunk-metrics/
+│   │   ├── src/
+│   │   ├── config/
+│   │   ├── systemd/
+│   │   ├── tests/
+│   │   └── README.md
+│   └── cloudflow-sink-clickhouse/
 │       ├── src/
+│       ├── schema/
 │       ├── config/
 │       ├── systemd/
 │       ├── tests/
@@ -151,13 +172,24 @@ Redis Streams are the transport and replay buffer between sources and
 sinks, read through per-sink consumer groups and acknowledged only after
 confirmed delivery. See `docs/redis-streams.md`.
 
-## Splunk sink
+## Sinks
 
-`cloudflow-sink-splunk` (C) reads each wire stream through the
-`sink-splunk` consumer group, decodes protobuf events, maps them to Splunk
-HEC JSON, and delivers them with retry and poison-event isolation. See
-`docs/splunk-output.md` for the full pipeline and the canonical HEC mapping,
-and `docs/failure-modes.md` for the retry/dead-letter policy.
+Sinks are destination-agnostic consumers of the wire streams; each is a
+distinct Redis consumer group, so any number of them read the same streams
+independently. Three are implemented, all C11 sharing the
+`libs/cloudflow-sink-core` spine (consumer / `XAUTOCLAIM` / ack-after-delivery
+/ retry / dead-letter):
+
+- `cloudflow-sink-splunk` (`sink-splunk`) reads each wire stream, decodes
+  protobuf events, maps them to Splunk HEC event JSON, and delivers them with
+  retry and poison-event isolation. See `docs/splunk-output.md` for the full
+  pipeline and the canonical HEC mapping, and `docs/failure-modes.md` for the
+  retry/dead-letter policy.
+- `cloudflow-sink-splunk-metrics` (`sink-splunk-metrics`) emits metric points
+  (RTT/rate/count) to Splunk's metrics index. See `docs/splunk-metrics.md`.
+- `cloudflow-sink-clickhouse` (`sink-clickhouse`) writes each event as one row
+  into a wide `ReplacingMergeTree` `events` table for columnar analytics. See
+  `docs/clickhouse-sink.md`.
 
 ## Development principles
 
