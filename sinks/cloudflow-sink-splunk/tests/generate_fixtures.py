@@ -31,19 +31,29 @@ _PB_ROOT = _HERE.parent / "src" / "cloudflow_pb"
 if _PB_ROOT.is_dir() and str(_PB_ROOT) not in sys.path:
     sys.path.insert(0, str(_PB_ROOT))
 
-from cloudflow.v1 import common_pb2, dhcp_pb2
+from cloudflow.v1 import common_pb2, dhcp_pb2, dns_pb2
 from cloudflow.v1.envelope_pb2 import CloudFlowEvent
 
 CLIENT_MAC = "02:00:00:00:00:01"
 SERVER_MAC = "02:00:00:00:00:fe"
 
 
-def _base_envelope(source_type: str, event_type: str, observed_ns: int, stream_name: str) -> common_pb2.EventEnvelope:
+def _base_envelope(
+    source_type: str,
+    event_type: str,
+    observed_ns: int,
+    stream_name: str,
+    *,
+    source_host: str | None = None,
+    payload_schema: str | None = None,
+) -> common_pb2.EventEnvelope:
+    if payload_schema is None:
+        payload_schema = f"cloudflow.v1.{'DhcpV4PacketEvent' if source_type == 'dhcpv4' else 'DhcpV6PacketEvent'}"
     return common_pb2.EventEnvelope(
         event_id="ab12cd34ef56ab12cd34ef56ab12cd34",
         schema_version=1,
         source_type=source_type,
-        source_host="dhcp-source-01.example.net",
+        source_host=source_host if source_host is not None else "dhcp-source-01.example.net",
         source_instance="dhcp-source-01",
         capture_interface="eth0",
         observation_method="rxring",
@@ -52,7 +62,7 @@ def _base_envelope(source_type: str, event_type: str, observed_ns: int, stream_n
         event_type=event_type,
         visibility=common_pb2.VISIBILITY_PACKET_PAYLOAD,
         confidence=common_pb2.OBSERVATION_CONFIDENCE_OBSERVED,
-        payload_schema=f"cloudflow.v1.{'DhcpV4PacketEvent' if source_type == 'dhcpv4' else 'DhcpV6PacketEvent'}",
+        payload_schema=payload_schema,
         stream_name=stream_name,
     )
 
@@ -226,12 +236,83 @@ def dhcpv6_solicit_event() -> CloudFlowEvent:
     return CloudFlowEvent(envelope=envelope, dhcpv6_packet=packet_event)
 
 
+def dns_transaction_event() -> CloudFlowEvent:
+    """A fully-correlated client-facing DNS transaction: an A query matched to
+    its NOERROR answer (mirrors the tests/fixtures/dns q_a_query/q_a_response
+    pair). Exercises the `dns_transaction` oneof, both packet observations, a
+    decoded question + answer, role, rtt, and the normalized client/server
+    identity fields (dns.proto)."""
+    query_ns = 1_730_000_002_000_000_000
+    rtt_nanos = 1_234_567
+    response_ns = query_ns + rtt_nanos
+
+    envelope = _base_envelope(
+        "dns",
+        "dns.transaction.observed",
+        query_ns,
+        "cloudflow:v1:wire:dns",
+        source_host="dns-source-01.example.net",
+        payload_schema="cloudflow.v1.DnsTransactionEvent",
+    )
+
+    client_ip, client_port = "192.0.2.100", 40000
+    server_ip = "192.0.2.53"
+
+    question = dns_pb2.DnsQuestion(
+        qname="www.example.com",
+        qname_wire=b"\x03www\x07example\x03com\x00",
+        qtype=1,
+        qtype_name="A",
+        qclass=1,
+    )
+
+    query = dns_pb2.DnsMessage(
+        header=dns_pb2.DnsHeader(id=0x1234, rd=True, qdcount=1),
+        questions=[question],
+    )
+
+    response = dns_pb2.DnsMessage(
+        header=dns_pb2.DnsHeader(
+            id=0x1234, qr=True, rd=True, ra=True, rcode=0, qdcount=1, ancount=1
+        ),
+        questions=[question],
+        answers=[
+            dns_pb2.DnsResourceRecord(
+                name="www.example.com",
+                type=1,
+                type_name="A",
+                **{"class": 1},
+                ttl=300,
+                rdata_raw=bytes([192, 0, 2, 10]),
+                rdata_text="192.0.2.10",
+            )
+        ],
+    )
+
+    transaction = dns_pb2.DnsTransactionEvent(
+        query_packet=_packet_observation(query_ns, client_ip, server_ip, client_port, 53),
+        response_packet=_packet_observation(response_ns, server_ip, client_ip, 53, client_port),
+        query=query,
+        response=response,
+        role=dns_pb2.DNS_LEG_CLIENT_FACING,
+        rtt_nanos=rtt_nanos,
+        rtt_valid=True,
+        transaction_key="4660/www.example.com/A",
+        client_ip=client_ip,
+        client_port=client_port,
+        server_ip=server_ip,
+    )
+
+    return CloudFlowEvent(envelope=envelope, dns_transaction=transaction)
+
+
 # Fixture name -> builder. These names match tests/golden/<name>.json and the
 # .pb files the C golden test reads from the fixtures directory.
 FIXTURES = {
     "dhcpv4_discover": lambda: dhcpv4_discover_event(),
     "dhcpv4_discover_raw_payload_stripped": lambda: dhcpv4_discover_event(with_raw_payload=True),
     "dhcpv6_solicit": lambda: dhcpv6_solicit_event(),
+    "dns_transaction": lambda: dns_transaction_event(),
 }
 
 

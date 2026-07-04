@@ -93,6 +93,7 @@ redis:
   streams:                          # required, non-empty
     - cloudflow:v1:wire:dhcpv4
     - cloudflow:v1:wire:dhcpv6
+    - cloudflow:v1:wire:dns
   consumer_group: sink-splunk       # default: sink-splunk
   read_count: 100                   # default: 100
   block_ms: 1000                    # default: 1000
@@ -104,6 +105,7 @@ splunk:
   sourcetypes:                      # default: {}; unmatched source_type -> cloudflow:<source_type>
     dhcpv4: cloudflow:dhcpv4
     dhcpv6: cloudflow:dhcpv6
+    dns: cloudflow:dns
   batch_size: 500                   # default: 500
   flush_interval_ms: 1000           # default: 1000
   request_timeout_ms: 5000          # default: 5000
@@ -131,7 +133,8 @@ Rules (reproducing protobuf JSON / `MessageToDict` semantics exactly):
 
 - `time` = `observed_time_unix_nano / 1e9`, rendered with exactly 9 decimals;
 - proto field names verbatim (snake_case); proto3 defaults omitted; the set
-  oneof payload appears under its field name (`dhcpv4_packet`/`dhcpv6_packet`);
+  oneof payload appears under its field name
+  (`dhcpv4_packet`/`dhcpv6_packet`/`dns_transaction`);
 - enums as their `.proto` names; `bytes` as base64; 64-bit integers as JSON
   strings; 32-bit integers/bools/floats as JSON numbers/bools;
 - `sourcetype` from `splunk.sourcetypes` keyed by `envelope.source_type`,

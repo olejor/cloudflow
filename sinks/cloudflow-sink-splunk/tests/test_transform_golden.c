@@ -21,8 +21,8 @@
 
 #include "cloudflow/v1/envelope.pb-c.h"
 
-static const char *ST_KEYS[] = {"dhcpv4", "dhcpv6"};
-static const char *ST_VALS[] = {"cloudflow:dhcpv4", "cloudflow:dhcpv6"};
+static const char *ST_KEYS[] = {"dhcpv4", "dhcpv6", "dns"};
+static const char *ST_VALS[] = {"cloudflow:dhcpv4", "cloudflow:dhcpv6", "cloudflow:dns"};
 
 static void make_config(cf_splunk_config_t *s, int include_raw)
 {
@@ -30,7 +30,7 @@ static void make_config(cf_splunk_config_t *s, int include_raw)
     s->index = (char *)"network";
     s->st_keys = (char **)ST_KEYS;
     s->st_vals = (char **)ST_VALS;
-    s->st_count = 2;
+    s->st_count = 3;
     s->include_raw_payload = include_raw;
 }
 
@@ -125,6 +125,14 @@ static void test_dhcpv6_solicit(void)
     run_case("dhcpv6_solicit", "dhcpv6_solicit", "cloudflow:v1:wire:dhcpv6", 0);
 }
 
+static void test_dns_transaction(void)
+{
+    /* A fully-correlated client-facing DNS transaction (dns_transaction oneof):
+     * both packets, a decoded question + answer, role, rtt, client/server ip.
+     * source_type "dns" maps to sourcetype cloudflow:dns. */
+    run_case("dns_transaction", "dns_transaction", "cloudflow:v1:wire:dns", 0);
+}
+
 static void test_raw_payload_kept_when_configured(void)
 {
     /* With include_raw_payload=1 the field must appear. */
@@ -160,6 +168,7 @@ int main(void)
         !CU_add_test(suite, "dhcpv4 discover golden", test_dhcpv4_discover) ||
         !CU_add_test(suite, "dhcpv4 raw payload stripped golden", test_dhcpv4_raw_stripped) ||
         !CU_add_test(suite, "dhcpv6 solicit golden", test_dhcpv6_solicit) ||
+        !CU_add_test(suite, "dns transaction golden", test_dns_transaction) ||
         !CU_add_test(suite, "raw payload kept when configured", test_raw_payload_kept_when_configured)) {
         CU_cleanup_registry();
         return (int)CU_get_error();

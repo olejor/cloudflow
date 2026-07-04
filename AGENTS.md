@@ -20,7 +20,8 @@ Initial scope:
 - Redis Streams producer
 - Splunk sink
 
-Do not broaden the *implementation* beyond what a task asks for. v0.1 (DHCP + Redis + Splunk event sink) is implemented; the DNS source, the Splunk metrics sink, and the ClickHouse sink are designed in `docs/` but not yet built — implement them only when a task explicitly requests it. A syslog source and a relational sink are not planned. See "Current non-goals" below.
+Do not broaden the *implementation* beyond what a task asks for. v0.1 (DHCP + Redis + Splunk event sink) and the v0.2 wire-observed DNS source are implemented.
+The Splunk metrics sink and the ClickHouse sink are designed in `docs/` but not yet built — implement them only when a task explicitly requests it. A syslog source and a relational sink are not planned. See "Current non-goals" below.
 
 ## Architectural rules
 
@@ -197,7 +198,7 @@ A sink may `XACK` only after successful downstream delivery.
 
 The Splunk sink should:
 
-- consume from `cloudflow:v1:wire:dhcpv4` and `cloudflow:v1:wire:dhcpv6`,
+- consume from `cloudflow:v1:wire:dhcpv4`, `cloudflow:v1:wire:dhcpv6`, and `cloudflow:v1:wire:dns`,
 - decode protobuf events,
 - convert them to JSON,
 - send them to Splunk HEC,
@@ -210,6 +211,7 @@ Suggested sourcetypes:
 ```text
 cloudflow:dhcpv4
 cloudflow:dhcpv6
+cloudflow:dns
 ```
 
 Malformed events should go to a dead-letter stream or be logged with enough information to debug safely. Do not lose malformed events silently.
@@ -279,7 +281,7 @@ docs/architecture.md            system overview, design decisions (D1..D11), rep
 docs/event-model.md              envelope, event types, protobuf contract
 docs/redis-streams.md            transport, wire streams, consumer groups, dead-letter
 docs/dhcp-source.md              the implemented DHCP source
-docs/dns-source.md                the designed (not yet implemented) DNS source
+docs/dns-source.md                the implemented DNS source
 docs/splunk-output.md            the Splunk event sink: consumer, HEC mapping, retry policy
 docs/splunk-metrics.md           the designed Splunk metrics sink and its metric mapping
 docs/clickhouse-sink.md          the designed (future) ClickHouse analytics sink
@@ -288,8 +290,9 @@ docs/building-and-testing.md    build system, codegen, tests, CI, benchmark, deb
 ```
 
 Docs describe the system in the present tense: what it is, and — for the
-DNS source — what is designed. They are not a changelog; do not narrate
-"we did X, then replaced it with Y" in prose. Git history is the changelog.
+metrics and ClickHouse sinks — what is designed. They are not a changelog; do
+not narrate "we did X, then replaced it with Y" in prose. Git history is the
+changelog.
 
 Every non-trivial design choice should be documented, especially choices involving data loss, retries, stream trimming, event identity, or schema evolution.
 
@@ -305,10 +308,14 @@ Unless a task explicitly requests it, do not implement:
 - application instrumentation agents.
 
 The first deliverable was DHCPv4/DHCPv6 -> Redis Streams -> Splunk (v0.1,
-complete). Explicitly requested and now designed (not yet implemented):
+complete). Also implemented:
 
-- a **wire-observed DNS source** (`docs/dns-source.md`) — reuses the v0.1
-  libraries and adds a stateful query/response correlation stage;
+- a **wire-observed DNS source** (`docs/dns-source.md`) — reuses the shared
+  libraries (including `cloudflow-capture`) and adds a stateful query/response
+  correlation stage.
+
+Explicitly requested and designed (not yet implemented):
+
 - a **Splunk metrics sink** (`docs/splunk-metrics.md`) — a second consumer
   group emitting metric points for RTT/rate/count dashboards;
 - a **ClickHouse sink** (`docs/clickhouse-sink.md`) — columnar analytics over

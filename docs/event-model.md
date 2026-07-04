@@ -60,7 +60,7 @@ DHCP payloads are `DhcpV4PacketEvent` / `DhcpV6PacketEvent`
 (`proto/cloudflow/v1/dhcp.proto`): each preserves the raw wire observation, a
 best-effort decoded option view, and CloudFlow's derived interpretation.
 
-## DNS event types (v0.2, designed — `docs/dns-source.md`)
+## DNS event types (v0.2, implemented — `docs/dns-source.md`)
 
 The DNS source is transaction-oriented: it correlates a query with its
 response rather than emitting a raw event per packet.
@@ -71,10 +71,9 @@ dns.query.unanswered          query evicted from the pending table on timeout
 dns.response.unmatched        response with no pending query (capture gap / spoofing signal)
 ```
 
-DNS payload is `DnsTransactionEvent` (`proto/cloudflow/v1/dns.proto`, not yet
-added — see `docs/dns-source.md`): both packet observations when present, the
-decoded query and response messages, the leg `role`
-(client-facing / backend / recursion-upstream), and per-leg RTT.
+DNS payload is `DnsTransactionEvent` (`proto/cloudflow/v1/dns.proto`): both
+packet observations when present, the decoded query and response messages, the
+leg `role` (client-facing / backend / recursion-upstream), and per-leg RTT.
 
 ## Observed identity — "who did this?"
 
@@ -92,7 +91,7 @@ a `PacketObservation` (`common.proto`) with the raw wire source —
   relayed traffic — the relay `giaddr` and option 82 circuit/remote-id
   alongside it. So for DHCP, "who asked" is the client MAC / client-id plus
   relay context, not `src_ip`.
-- **DNS** (designed). The L3 source *is* the identity: `query_packet`'s
+- **DNS.** The L3 source *is* the identity: `query_packet`'s
   `network.src_ip` is the client on the client-facing leg, or the recursor on
   the upstream leg. Combined with the transaction's `role`, that distinguishes
   "a client queried us" from "we queried upstream". `DnsTransactionEvent`

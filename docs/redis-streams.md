@@ -10,7 +10,7 @@ Wire streams:
 ```text
 cloudflow:v1:wire:dhcpv4   (v0.1, implemented)
 cloudflow:v1:wire:dhcpv6   (v0.1, implemented)
-cloudflow:v1:wire:dns      (v0.2, designed — see docs/dns-source.md)
+cloudflow:v1:wire:dns      (v0.2, implemented — see docs/dns-source.md)
 ```
 
 Entry fields (the payload wrapper is `cloudflow.v1.CloudFlowEvent`, which

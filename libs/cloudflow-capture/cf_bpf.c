@@ -1,6 +1,6 @@
 #include "cf_bpf.h"
 
-#include <netinet/in.h> /* IPPROTO_UDP */
+#include <netinet/in.h> /* IPPROTO_UDP, IPPROTO_TCP */
 #include <string.h>
 
 void bpf_asm_init(bpf_asm_t *a)
@@ -150,4 +150,42 @@ void bpf_asm_ipv6_udp_ports_branch(bpf_asm_t *a, __u32 ip_base, __u16 port1, __u
     bpf_asm_check_two_ports(a, CF_BPF_UDP_SRC_PORT_OFF, port1, port2, accept_label,
                             CF_BPF_ASM_FALLTHROUGH);
     bpf_asm_check_two_ports(a, CF_BPF_UDP_DST_PORT_OFF, port1, port2, accept_label, drop_label);
+}
+
+void bpf_asm_ipv4_tcp_ports_branch(bpf_asm_t *a, __u32 ip_base, __u16 port1, __u16 port2,
+                                    int accept_label, int mismatch_label)
+{
+    /* ip.protocol (byte 9 of the IP header). Not TCP -> caller's mismatch. */
+    bpf_asm_stmt(a, BPF_LD | BPF_B | BPF_ABS, ip_base + 9);
+    bpf_asm_jump(a, BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_TCP, CF_BPF_ASM_FALLTHROUGH, mismatch_label);
+
+    /* flags+fragment-offset (bytes 6-7): a non-first fragment carries no TCP
+     * header to read a port from, so treat it as a mismatch (chained to drop),
+     * the same "ip[6:2] & 0x1fff != 0" idiom the UDP branch and tcpdump use. */
+    bpf_asm_stmt(a, BPF_LD | BPF_H | BPF_ABS, ip_base + 6);
+    bpf_asm_jump(a, BPF_JMP | BPF_JSET | BPF_K, 0x1fffu, mismatch_label, CF_BPF_ASM_FALLTHROUGH);
+
+    /* X = IHL * 4 (the "load IP header length" MSH trick) */
+    bpf_asm_stmt(a, BPF_LDX | BPF_B | BPF_MSH, ip_base);
+
+    bpf_asm_check_two_ports(a, ip_base + CF_BPF_TCP_SRC_PORT_OFF, port1, port2, accept_label,
+                            CF_BPF_ASM_FALLTHROUGH);
+    bpf_asm_check_two_ports(a, ip_base + CF_BPF_TCP_DST_PORT_OFF, port1, port2, accept_label,
+                            mismatch_label);
+}
+
+void bpf_asm_ipv6_tcp_ports_branch(bpf_asm_t *a, __u32 ip_base, __u16 port1, __u16 port2,
+                                    int accept_label, int mismatch_label)
+{
+    /* next-header (byte 6 of the fixed IPv6 header). Not TCP -> mismatch. */
+    bpf_asm_stmt(a, BPF_LD | BPF_B | BPF_ABS, ip_base + 6);
+    bpf_asm_jump(a, BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_TCP, CF_BPF_ASM_FALLTHROUGH, mismatch_label);
+
+    /* X = ip_base + 40 (fixed IPv6 header length), so IND loads below are
+     * relative to the TCP header start without a per-byte MSH trick. */
+    bpf_asm_stmt(a, BPF_LDX | BPF_IMM, ip_base + 40);
+
+    bpf_asm_check_two_ports(a, CF_BPF_TCP_SRC_PORT_OFF, port1, port2, accept_label,
+                            CF_BPF_ASM_FALLTHROUGH);
+    bpf_asm_check_two_ports(a, CF_BPF_TCP_DST_PORT_OFF, port1, port2, accept_label, mismatch_label);
 }

@@ -27,6 +27,7 @@ Services:
 
 ```text
 cloudflow-source-dhcp    (C, implemented)
+cloudflow-source-dns     (C, implemented)
 cloudflow-sink-splunk    (C, implemented)
 ```
 
@@ -35,7 +36,7 @@ Redis streams:
 ```text
 cloudflow:v1:wire:dhcpv4   (implemented)
 cloudflow:v1:wire:dhcpv6   (implemented)
-cloudflow:v1:wire:dns      (v0.2, designed — see docs/dns-source.md)
+cloudflow:v1:wire:dns      (v0.2, implemented — see docs/dns-source.md)
 ```
 
 Redis consumer groups:
@@ -44,8 +45,10 @@ Redis consumer groups:
 sink-splunk
 ```
 
-A **wire-observed DNS source (v0.2)** is designed but not yet implemented —
-see `docs/dns-source.md`.
+The **wire-observed DNS source (v0.2)** captures udp/53 and tcp/53, parses
+DNS, and correlates each query to its response into `DnsTransactionEvent`
+events on `cloudflow:v1:wire:dns`; the Splunk sink delivers them as
+`sourcetype=cloudflow:dns`. See `docs/dns-source.md`.
 
 ## Repository layout
 
@@ -68,16 +71,23 @@ cloudflow/
 │       └── v1/
 │           ├── common.proto
 │           ├── envelope.proto
-│           └── dhcp.proto
+│           ├── dhcp.proto
+│           └── dns.proto
 │
 ├── libs/
 │   ├── cloudflow-core/
 │   ├── cloudflow-codec/
 │   ├── cloudflow-redis/
-│   └── cloudflow-packet/
+│   ├── cloudflow-packet/
+│   └── cloudflow-capture/
 │
 ├── sources/
-│   └── cloudflow-source-dhcp/
+│   ├── cloudflow-source-dhcp/
+│   │   ├── src/
+│   │   ├── tests/
+│   │   ├── systemd/
+│   │   └── README.md
+│   └── cloudflow-source-dns/
 │       ├── src/
 │       ├── tests/
 │       ├── systemd/

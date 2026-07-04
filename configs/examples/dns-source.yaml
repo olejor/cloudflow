@@ -1,0 +1,84 @@
+# cloudflow-source-dns example configuration (CloudFlow v0.2, docs/dns-source.md).
+#
+# Every key below is optional: a missing key falls back to the default shown
+# here (these values ARE the loader's defaults). Unknown keys are logged and
+# ignored. Secrets (Redis/Splunk credentials) NEVER live in this file -- they
+# come from the process environment via the systemd unit's EnvironmentFile.
+#
+# Addresses below use documentation ranges only (RFC 5737 / RFC 3849).
+
+service:
+  name: cloudflow-source-dns
+  # Provenance stamped into every event's envelope. Empty/omitted => the host's
+  # gethostname(). Overridable at runtime with CF_SOURCE_HOST.
+  source_host: dns01
+
+capture:
+  # Overridable at runtime with CF_INTERFACE.
+  interface: eth0
+  # Only "rxring" is supported; any other value is a fatal config error.
+  method: rxring
+  snaplen: 1500
+  # Informational only (DNS-D1): the builtin VLAN-aware udp/53 + tcp/53 cBPF
+  # filter is always used regardless of this string.
+  filter: "udp port 53 or tcp port 53"
+
+queues:
+  # Bounded SPSC queues (D9). Capacities are element counts.
+  rx_to_stage_capacity: 65536     # rx-reader -> parse+correlate event stage
+  stage_to_redis_capacity: 65536  # event stage -> redis-producer
+  # What to do when a queue is full: drop_newest (default) | drop_oldest | block.
+  on_full: drop_newest
+
+redis:
+  # Tried in order (D3). Overridable at runtime with CF_REDIS_ENDPOINTS
+  # (comma-separated host:port list).
+  endpoints:
+    - redis01:6379
+    - redis02:6379
+    - redis03:6379
+  # Informational only: the producer library writes cloudflow:v1:wire:dns
+  # (CF_STREAM_DNS) regardless. A mismatch here is logged as a warning.
+  stream_dns: cloudflow:v1:wire:dns
+  # XADD MAXLEN ~ trim target; 0 disables trimming.
+  maxlen_approx: 1000000
+  xadd_batch_size: 100          # pipelined XADDs per flush
+  xadd_flush_interval_ms: 10
+
+dns:
+  # Bounded pending-query correlation table (DNS-D5). Memory is
+  # capacity * sizeof(entry), pre-allocated.
+  pending_table_capacity: 262144
+  # A pending query with no response within this window is emitted as
+  # dns.query.unanswered.
+  query_timeout_ms: 5000
+  # Correlation table-full policy (DNS-D5): drop_newest (default) | drop_oldest.
+  on_table_full: drop_newest
+
+  # Leg classifier (DNS-D7). local_service_addresses are this host's DNS service
+  # IPs (a query to one of these is CLIENT_FACING). backend_addresses are the
+  # recursor/authoritative backends this host talks to (a query to one of these
+  # is BACKEND; any other remote :53 is RECURSION_UPSTREAM).
+  #
+  # NOTE: the DNS-D7 "auto-derive local addresses from the capture interface"
+  # helper is not implemented yet, so the local set is exactly this list.
+  local_service_addresses:
+    - 192.0.2.53
+    - 2001:db8::53
+  backend_addresses:
+    - 192.0.2.10
+    - 198.51.100.10
+
+  # Emit policy (DNS-D8): "all" (default) emits every correlated transaction;
+  # "predicate" always emits unanswered/unmatched, non-NOERROR rcodes, and
+  # unusual qtypes, but samples routine A/AAAA NOERROR transactions keeping 1 of
+  # every sample_denominator (deterministically). 0 or 1 means keep all.
+  emit_policy: all
+  sample_denominator: 0
+
+stats:
+  # Seconds between stats log lines.
+  interval_s: 10
+  # false (default) => cumulative counters; true => each line reports the delta
+  # since the previous line (gauges are always current).
+  reset_on_report: false

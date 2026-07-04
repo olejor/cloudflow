@@ -1,0 +1,23 @@
+[Unit]
+Description=CloudFlow DNS source
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflow-source-dns -c /etc/cloudflow/dns-source.yaml
+# Secrets (Redis/Splunk credentials) come from the environment, never the YAML.
+# Provide them in this file (KEY=VALUE lines, mode 0600, root-owned).
+EnvironmentFile=/etc/cloudflow/dns-source.env
+Restart=on-failure
+RestartSec=5
+User=cloudflow
+Group=cloudflow
+# CAP_NET_RAW: open the AF_PACKET/PACKET_RX_RING capture socket.
+# CAP_SYS_NICE: best-effort SCHED_FIFO on the rx-reader thread (its absence is
+# logged and capture continues at normal priority, so it is optional).
+AmbientCapabilities=CAP_NET_RAW CAP_SYS_NICE
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
