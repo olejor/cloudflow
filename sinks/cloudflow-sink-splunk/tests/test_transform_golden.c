@@ -24,10 +24,10 @@
 static const char *ST_KEYS[] = {"dhcpv4", "dhcpv6", "dns"};
 static const char *ST_VALS[] = {"cloudflow:dhcpv4", "cloudflow:dhcpv6", "cloudflow:dns"};
 
-static void make_config(cf_splunk_config_t *s, int include_raw)
+static void make_config(cf_config_t *s, int include_raw)
 {
     memset(s, 0, sizeof(*s));
-    s->index = (char *)"network";
+    s->base.hec.index = (char *)"network";
     s->st_keys = (char **)ST_KEYS;
     s->st_vals = (char **)ST_VALS;
     s->st_count = 3;
@@ -77,7 +77,7 @@ static void run_case(const char *pb_name, const char *golden_name, const char *s
     uint8_t *buf;
     size_t len = 0;
     Cloudflow__V1__CloudFlowEvent *ev;
-    cf_splunk_config_t s;
+    cf_config_t s;
     char *line;
     FILE *out;
 
@@ -139,7 +139,7 @@ static void test_raw_payload_kept_when_configured(void)
     uint8_t *buf;
     size_t len = 0;
     Cloudflow__V1__CloudFlowEvent *ev;
-    cf_splunk_config_t s;
+    cf_config_t s;
     char *line;
 
     buf = read_file("tests/fixtures/dhcpv4_discover_raw_payload_stripped.pb", &len);

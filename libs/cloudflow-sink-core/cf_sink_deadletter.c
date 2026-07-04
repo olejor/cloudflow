@@ -1,4 +1,4 @@
-#include "deadletter.h"
+#include "cf_sink_deadletter.h"
 
 #include <string.h>
 
@@ -7,16 +7,16 @@
 
 #define CF_DEADLETTER_ERROR_MAX 2000
 
-int cf_deadletter_write(redisContext *ctx, cf_stats_t *stats, const char *reason,
-                        const char *origin_stream, const char *origin_id, const char *error,
-                        const uint8_t *payload, size_t payload_len)
+int cf_deadletter_write(redisContext *ctx, cf_stats_t *stats, const char *deadletter_stream,
+                        const char *reason, const char *origin_stream, const char *origin_id,
+                        const char *error, const uint8_t *payload, size_t payload_len)
 {
     redisReply *reply;
     char maxlen[24];
     char errtrunc[CF_DEADLETTER_ERROR_MAX + 1];
     int ok;
 
-    if (!ctx)
+    if (!ctx || !deadletter_stream)
         return -1;
 
     if (!error)
@@ -30,7 +30,7 @@ int cf_deadletter_write(redisContext *ctx, cf_stats_t *stats, const char *reason
     reply = redisCommand(ctx,
                          "XADD %s MAXLEN ~ %s * reason %b origin_stream %b origin_id %b "
                          "error %b payload %b",
-                         CF_DEADLETTER_STREAM, maxlen,
+                         deadletter_stream, maxlen,
                          reason, strlen(reason),
                          origin_stream, strlen(origin_stream),
                          origin_id, strlen(origin_id),

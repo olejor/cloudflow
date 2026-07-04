@@ -31,10 +31,10 @@
 /* Render one already-unpacked CloudFlowEvent as a single HEC JSON line (no
  * trailing newline). `stream_name` is the Redis stream the entry came from,
  * used as the `source` fallback when the envelope has no stream_name.
+ * Reads the event-sink config (index, sourcetypes map, include_raw_payload).
  * Returns a malloc'd NUL-terminated string the caller frees, or NULL on
  * error. */
 char *cf_transform_render_hec_line(const Cloudflow__V1__CloudFlowEvent *ev,
-                                   const char *stream_name,
-                                   const cf_splunk_config_t *splunk);
+                                   const char *stream_name, const cf_config_t *cfg);
 
 #endif

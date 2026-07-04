@@ -1,13 +1,20 @@
-#ifndef CF_SINK_SPLUNK_HEC_H
-#define CF_SINK_SPLUNK_HEC_H
+#ifndef CF_SINK_CORE_HEC_H
+#define CF_SINK_CORE_HEC_H
 
-/* WP-17 -- batched Splunk HEC delivery (libcurl) with retry/backoff/bisect.
+/* Shared sink spine (A1) -- batched Splunk HEC delivery (libcurl) with
+ * retry/backoff/bisect.
  *
  * Retry policy (docs/splunk-output.md, "HEC delivery and retry"):
  * network errors/timeouts/HTTP 429/5xx back off 1s doubling to a 30s cap and
  * retry forever (Redis is the buffer). Other 4xx bisect the batch recursively
  * (floor size 1) to isolate the poison event(s), which are reported back for
  * dead-lettering + XACK while the rest are delivered.
+ *
+ * The endpoint is parameterized: the client POSTs to hec_url + hec_path (the
+ * event sink uses /services/collector/event; the designed metrics sink uses
+ * /services/collector). The `line` bytes of each item are opaque to the
+ * client -- it concatenates them with '\n' and POSTs the result -- so a
+ * transform may put one or several newline-delimited JSON objects in one item.
  *
  * Keep-alive: one reused curl easy handle. TLS verification is on by default;
  * disabling it logs a loud warning. The backoff sleep is injectable so tests
@@ -17,23 +24,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "config.h"
-#include "stats.h"
+#include "cf_sink_config.h"
+#include "cf_sink_stats.h"
 
 typedef struct cf_hec_client cf_hec_client_t;
 
 typedef struct {
     const char *stream;
     const char *entry_id;
-    const char *line; /* HEC JSON line, no trailing newline */
+    const char *line; /* HEC payload bytes for one entry (no trailing newline) */
     const uint8_t *payload;
     size_t payload_len;
 } cf_batch_item_t;
 
 /* Creates a client. Resolves the token from the env (fatal if unset: returns
- * NULL and writes errbuf). */
-cf_hec_client_t *cf_hec_client_new(const cf_splunk_config_t *splunk, cf_stats_t *stats,
-                                   char *errbuf, size_t errcap);
+ * NULL and writes errbuf). POSTs to hec->hec_url concatenated with
+ * hec->hec_path. */
+cf_hec_client_t *cf_hec_client_new(const cf_hec_config_t *hec, cf_stats_t *stats, char *errbuf,
+                                   size_t errcap);
 void cf_hec_client_free(cf_hec_client_t *c);
 
 /* Injects the backoff sleep (seconds). Default sleeps for real. */

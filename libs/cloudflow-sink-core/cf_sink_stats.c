@@ -1,4 +1,4 @@
-#include "stats.h"
+#include "cf_sink_stats.h"
 
 #include "cf_log.h"
 #include "cf_stats.h"

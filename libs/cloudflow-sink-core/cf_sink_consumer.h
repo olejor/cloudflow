@@ -1,7 +1,8 @@
-#ifndef CF_SINK_SPLUNK_CONSUMER_H
-#define CF_SINK_SPLUNK_CONSUMER_H
+#ifndef CF_SINK_CORE_CONSUMER_H
+#define CF_SINK_CORE_CONSUMER_H
 
-/* WP-17 -- Redis consumer-group logic (hiredis).
+/* Shared sink spine (A1) -- Redis consumer-group logic (hiredis), generic
+ * over the destination transform.
  *
  * docs/splunk-output.md, "Consumer behavior":
  *  - XGROUP CREATE <stream> <group> 0 MKSTREAM per stream (BUSYGROUP ignored);
@@ -10,21 +11,45 @@
  *  - validate each entry's encoding/schema fields, protobuf-unpack the
  *    payload; any decode failure is dead-lettered (reason=decode_error) then
  *    XACKed;
- *  - transformed events are batched; entries are XACKed only after their
+ *  - the sink-supplied transform callback renders the unpacked event into HEC
+ *    payload bytes; those are batched; entries are XACKed only after their
  *    batch got a 2xx (or after confirmed dead-lettering, reason=hec_rejected);
  *  - SIGTERM (via cf_stop_notified): flush the in-flight batch once, ack what
  *    succeeded, exit. */
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 
 #include <hiredis/hiredis.h>
 
-#include "config.h"
-#include "hec.h"
-#include "stats.h"
+#include "cf_sink_config.h"
+#include "cf_sink_hec.h"
+#include "cf_sink_stats.h"
+
+#include "cloudflow/v1/envelope.pb-c.h"
 
 #define CF_CONSUMER_DEFAULT_MIN_IDLE_MS 60000
+
+/* Growable byte accumulator the transform appends its HEC payload bytes to.
+ * Always kept NUL-terminated. */
+typedef struct {
+    char *data;
+    size_t len;
+    size_t cap;
+} cf_sink_buf_t;
+
+/* Append `n` bytes of `s` to the buffer. Returns 0 on success, -1 on OOM. */
+int cf_sink_buf_append(cf_sink_buf_t *b, const char *s, size_t n);
+void cf_sink_buf_reset(cf_sink_buf_t *b);
+void cf_sink_buf_free(cf_sink_buf_t *b);
+
+/* Append this event's HEC payload object(s) to `out` (newline-delimited JSON
+ * the HEC client POSTs; no trailing newline). `source_stream` is the Redis
+ * stream the entry came from (the transform may use it as the `source`).
+ * Return 0 on success, non-zero to dead-letter (poison). */
+typedef int (*cf_sink_transform_fn)(void *user, const Cloudflow__V1__CloudFlowEvent *ev,
+                                     const char *source_stream, cf_sink_buf_t *out);
 
 typedef struct {
     char *stream;
@@ -36,8 +61,11 @@ typedef struct {
 
 typedef struct {
     redisContext *ctx;
-    const cf_config_t *cfg;
+    const cf_sink_config_t *cfg;
     cf_stats_t *stats;
+
+    cf_sink_transform_fn transform;
+    void *transform_user;
 
     int stdout_mode;       /* 1 = print lines; 0 = POST via `hec` */
     FILE *stdout_stream;   /* used in stdout mode; default stdout */
@@ -55,8 +83,11 @@ typedef struct {
 
 /* Initialize against an established redis context. Defaults: stdout mode off,
  * stdout stream = stdout, min_idle 60s. Returns 0 on success. */
-int cf_consumer_init(cf_consumer_t *c, redisContext *ctx, const cf_config_t *cfg,
+int cf_consumer_init(cf_consumer_t *c, redisContext *ctx, const cf_sink_config_t *cfg,
                      cf_stats_t *stats);
+
+/* Set the transform callback (required before running). */
+void cf_consumer_set_transform(cf_consumer_t *c, cf_sink_transform_fn fn, void *user);
 
 void cf_consumer_set_stdout(cf_consumer_t *c, FILE *stream);
 void cf_consumer_set_hec(cf_consumer_t *c, cf_hec_client_t *hec);

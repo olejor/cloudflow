@@ -26,28 +26,47 @@ Responsibilities:
 
 ## Layout
 
+The generic sink spine -- the consumer group, HEC client, dead-letter writer,
+base config/stats, and the run loop -- lives in `libs/cloudflow-sink-core`
+(synergy item A1) and is shared with the designed Splunk metrics sink. This app
+keeps only the event-specific pieces:
+
 ```text
 src/
-  main.c          CLI: -c <config>, --stdout, --once, --version; SIGTERM flush-once
-  config.{c,h}    YAML config loading (libyaml); env-only HEC token (D6)
-  consumer.{c,h}  Redis consumer group (hiredis): XGROUP/XAUTOCLAIM/XREADGROUP/XACK
+  main.c          thin CLI: parse config, supply the event transform, call
+                  cf_sink_run (the shared loop); --stdout, --once, --version
+  config.{c,h}    event config: the `sourcetypes` map + `include_raw_payload`,
+                  layered on the shared base config (cf_sink_config)
   transform.{c,h} protobuf-c CloudFlowEvent -> yyjson HEC JSON (the mapping)
-  hec.{c,h}       batched Splunk HEC client (libcurl) + retry/backoff/bisect
-  deadletter.{c,h}dead-letter stream writer
-  stats.{c,h}     counters + periodic structured stats line
 src/cloudflow_pb/ generated Python bindings (WP-02) -- kept for tools + the
                   golden generator; not used by the C binary
-tests/            CUnit suites + golden files + the Python golden generator
+tests/            golden compatibility suite + golden files + the Python golden
+                  generator (the consumer/HEC suites moved to sink-core)
 config/           example config
 systemd/          unit file
 Makefile          build/cloudflow-sink-splunk; `all test test-asan clean`
 ```
 
+The shared spine (`libs/cloudflow-sink-core/`):
+
+```text
+cf_sink_consumer.{c,h}   Redis consumer group (hiredis): XGROUP/XAUTOCLAIM/
+                         XREADGROUP/XACK, entry validation, protobuf unpack
+cf_sink_hec.{c,h}        batched Splunk HEC client (libcurl) + retry/backoff/
+                         bisect; endpoint path parameterized
+cf_sink_deadletter.{c,h} dead-letter stream writer (stream name is config)
+cf_sink_config.{c,h}     base YAML config (libyaml); env-only HEC token (D6)
+cf_sink_stats.{c,h}      base counters + periodic structured stats line
+cf_sink_run.{c,h}        the consume->transform->batch->deliver->ack loop,
+                         parameterized by a transform callback
+tests/                   consumer + HEC CUnit suites
+```
+
 ## Building
 
-Depends on: `libcloudflow-core.a`, `libcloudflow-codec.a`, the vendored
-`third_party/yyjson`, and the system libraries hiredis, libcurl, libyaml,
-libprotobuf-c (all via `pkg-config`).
+Depends on: `libcloudflow-sink-core.a`, `libcloudflow-core.a`,
+`libcloudflow-codec.a`, the vendored `third_party/yyjson`, and the system
+libraries hiredis, libcurl, libyaml, libprotobuf-c (all via `pkg-config`).
 
 ```sh
 make -C sinks/cloudflow-sink-splunk all       # -> build/cloudflow-sink-splunk

@@ -1,4 +1,10 @@
-/* WP-17 -- cloudflow-sink-splunk: Redis Streams -> Splunk HEC sink (C).
+/* cloudflow-sink-splunk: Redis Streams -> Splunk HEC event sink (C).
+ *
+ * Thin wiring over the shared sink spine (libs/cloudflow-sink-core): this
+ * process only parses the CLI + event config and supplies the event->HEC-JSON
+ * transform (src/transform.c). The consume -> transform -> batch -> deliver ->
+ * ack loop, the HEC client, the dead-letter path and the stats line all live
+ * in the spine and are reused verbatim by the designed metrics sink.
  *
  * CLI: -c/--config <path> (required), --stdout (print HEC JSON instead of
  * POSTing), --once (drain what is pending then exit), --version. SIGTERM/
@@ -8,15 +14,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <curl/curl.h>
-#include <hiredis/hiredis.h>
-
 #include "cf_log.h"
-#include "cf_sync.h"
+#include "cf_sink_consumer.h" /* cf_sink_buf_t */
+#include "cf_sink_run.h"
+#include "cf_sink_stats.h"
 #include "config.h"
-#include "consumer.h"
-#include "hec.h"
-#include "stats.h"
+#include "transform.h"
 
 #ifndef CF_SINK_SPLUNK_VERSION
 #define CF_SINK_SPLUNK_VERSION "0.1.0"
@@ -33,36 +36,21 @@ static void usage(FILE *out, const char *prog)
             prog);
 }
 
-/* Connect to the first reachable endpoint (D3). Returns NULL on total failure. */
-static redisContext *connect_redis(const cf_redis_config_t *rc)
+/* Event-sink transform: render one CloudFlowEvent to its canonical HEC JSON
+ * object and hand the bytes to the spine (one object per event, no trailing
+ * newline). Non-zero return dead-letters the entry. */
+static int splunk_event_transform(void *user, const Cloudflow__V1__CloudFlowEvent *ev,
+                                  const char *source_stream, cf_sink_buf_t *out)
 {
-    size_t i;
-    for (i = 0; i < rc->endpoint_count; i++) {
-        const char *ep = rc->endpoints[i];
-        const char *colon = strrchr(ep, ':');
-        char host[256];
-        int port;
-        redisContext *ctx;
-        size_t hlen;
+    const cf_config_t *cfg = user;
+    char *line = cf_transform_render_hec_line(ev, source_stream, cfg);
+    int rc;
 
-        if (!colon || colon == ep)
-            continue;
-        hlen = (size_t)(colon - ep);
-        if (hlen >= sizeof(host))
-            continue;
-        memcpy(host, ep, hlen);
-        host[hlen] = '\0';
-        port = atoi(colon + 1);
-        if (port <= 0 || port > 65535)
-            continue;
-
-        ctx = redisConnect(host, port);
-        if (ctx && !ctx->err)
-            return ctx;
-        if (ctx)
-            redisFree(ctx);
-    }
-    return NULL;
+    if (!line)
+        return -1;
+    rc = cf_sink_buf_append(out, line, strlen(line));
+    free(line);
+    return rc;
 }
 
 int main(int argc, char **argv)
@@ -73,11 +61,9 @@ int main(int argc, char **argv)
     int i;
     cf_config_t cfg;
     char errbuf[512];
-    redisContext *ctx = NULL;
     cf_stats_t stats;
-    cf_consumer_t consumer;
-    cf_hec_client_t *hec = NULL;
-    int rc = 0;
+    cf_sink_run_options_t opt;
+    int rc;
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--config") == 0) {
@@ -113,60 +99,20 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    cf_log_init(cfg.service.name);
+    cf_log_init(cfg.base.service.name);
     cf_stats_init(&stats);
 
-    cf_log(CF_LOG_INFO, "starting", "consumer_name", cfg.service.consumer_name, "stdout_mode",
-           stdout_mode ? "true" : "false", "once", once ? "true" : "false", NULL);
+    memset(&opt, 0, sizeof(opt));
+    opt.config = &cfg.base;
+    opt.stats = &stats;
+    opt.transform = splunk_event_transform;
+    opt.transform_user = &cfg;
+    opt.stdout_mode = stdout_mode;
+    opt.once = once;
+    opt.stdout_stream = stdout;
 
-    ctx = connect_redis(&cfg.redis);
-    if (!ctx) {
-        cf_log(CF_LOG_ERROR, "could not connect to any redis endpoint", NULL);
-        cf_config_free(&cfg);
-        return 1;
-    }
+    rc = cf_sink_run(&opt);
 
-    if (!stdout_mode) {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
-        hec = cf_hec_client_new(&cfg.splunk, &stats, errbuf, sizeof(errbuf));
-        if (!hec) {
-            cf_log(CF_LOG_ERROR, "HEC client init failed", "error", errbuf, NULL);
-            redisFree(ctx);
-            cf_config_free(&cfg);
-            curl_global_cleanup();
-            return 1;
-        }
-    }
-
-    if (cf_consumer_init(&consumer, ctx, &cfg, &stats) != 0) {
-        cf_log(CF_LOG_ERROR, "consumer init failed", NULL);
-        rc = 1;
-        goto cleanup;
-    }
-    if (stdout_mode)
-        cf_consumer_set_stdout(&consumer, stdout);
-    else
-        cf_consumer_set_hec(&consumer, hec);
-
-    cf_stop_install_signal_handlers();
-
-    if (once) {
-        cf_consumer_run_once(&consumer);
-        cf_stats_emit(&stats);
-    } else {
-        cf_consumer_run_forever(&consumer);
-    }
-
-    cf_consumer_free(&consumer);
-    cf_log(CF_LOG_INFO, "exiting", NULL);
-
-cleanup:
-    if (hec)
-        cf_hec_client_free(hec);
-    if (ctx)
-        redisFree(ctx);
-    if (!stdout_mode)
-        curl_global_cleanup();
     cf_config_free(&cfg);
     return rc;
 }
