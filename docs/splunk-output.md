@@ -104,7 +104,12 @@ Rules — this is the contract:
   entry's stream); `index` from config, omitted if empty.
 - `sourcetype` from `splunk.sourcetypes` keyed by `source_type`; unknown
   types fall back to `cloudflow:<source_type>`. The mapping covers
-  `cloudflow:dhcpv4`, `cloudflow:dhcpv6`, and `cloudflow:dns`.
+  `cloudflow:dhcpv4`, `cloudflow:dhcpv6`, and `cloudflow:dns`. For
+  `source_type=dns`, when the transaction carries an operator-assigned
+  `service_role`, the label is appended to the base DNS sourcetype as
+  `cloudflow:dns:<label>` (e.g. `cloudflow:dns:recursor`); with no
+  `service_role` the sourcetype stays `cloudflow:dns` (or whatever
+  `splunk.sourcetypes[dns]` maps to — the suffix appends to that base).
 - `event` = protobuf JSON of the whole `CloudFlowEvent` with
   `preserve_proto_field_name` semantics — field names match the `.proto`
   exactly, `bytes` render as base64, enums as their names, 64-bit ints as

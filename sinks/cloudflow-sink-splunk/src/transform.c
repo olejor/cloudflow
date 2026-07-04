@@ -323,6 +323,7 @@ char *cf_transform_render_hec_line(const Cloudflow__V1__CloudFlowEvent *ev,
     const Cloudflow__V1__EventEnvelope *env = ev ? ev->envelope : NULL;
     const char *index = cfg->base.hec.index;
     char st_buf[128];
+    char st_role_buf[256];
     char time_buf[48];
     const char *sourcetype;
     const char *source;
@@ -345,6 +346,20 @@ char *cf_transform_render_hec_line(const Cloudflow__V1__CloudFlowEvent *ev,
                                                        : (stream_name ? stream_name : "");
     sourcetype = cf_splunk_sourcetype_for(cfg, env->source_type ? env->source_type : "", st_buf,
                                           sizeof(st_buf));
+    /* WP-DNS11b: route the DNS event sourcetype by operator-assigned
+     * service_role. When a dns.transaction carries a non-empty service_role,
+     * append it to the (possibly operator-overridden) base DNS sourcetype as
+     * "<base>:<service_role>" (docs/splunk-output.md). Empty/absent keeps the
+     * base cloudflow:dns. The label is an operator config value passed through
+     * verbatim; yyjson JSON-escapes it when written below. */
+    if (env->source_type && strcmp(env->source_type, "dns") == 0 &&
+        ev->payload_case == CLOUDFLOW__V1__CLOUD_FLOW_EVENT__PAYLOAD_DNS_TRANSACTION &&
+        ev->dns_transaction && ev->dns_transaction->service_role &&
+        ev->dns_transaction->service_role[0]) {
+        snprintf(st_role_buf, sizeof(st_role_buf), "%s:%s", sourcetype,
+                 ev->dns_transaction->service_role);
+        sourcetype = st_role_buf;
+    }
     format_hec_time(env->observed_time_unix_nano, time_buf, sizeof(time_buf));
 
     root = yyjson_mut_obj(doc);
