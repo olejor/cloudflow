@@ -76,6 +76,12 @@ typedef struct {
     const cf_dns_addr_set_t *local_addrs;
     const cf_dns_addr_set_t *backend_addrs;
 
+    /* Service-role map (WP-DNS11a): server-side address -> operator label,
+     * built by the app shell from dns.service_roles (or NULL for "none").
+     * Borrowed. Sets the emitted DnsTransactionEvent.service_role; empty when
+     * NULL, unmapped, or the server side is indeterminate. */
+    const cf_dns_role_map_t *role_map;
+
     /* Sampling / emit policy (DNS-D8). */
     cf_dns_emit_policy_t emit_policy;
 } dns_stage_config_t;

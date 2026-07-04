@@ -83,6 +83,30 @@ static cf_dns_addr_set_t *build_addr_set(char *const *addrs, size_t count, const
     return set;
 }
 
+/* Builds the WP-DNS11a service-role map from the parsed dns.service_roles
+ * groups: each address in a group is mapped to that group's label. An address
+ * that inet_pton rejects is logged and skipped (never fatal). Returns a heap map
+ * (possibly empty) on success, or NULL only on allocation failure. */
+static cf_dns_role_map_t *build_role_map(const cf_dns_service_role_t *roles, size_t count)
+{
+    cf_dns_role_map_t *map = cf_dns_role_map_new();
+    size_t i, j;
+
+    if (!map) {
+        cf_log(CF_LOG_ERROR, "out of memory building service-role map", NULL);
+        return NULL;
+    }
+
+    for (i = 0; i < count; i++) {
+        for (j = 0; j < roles[i].address_count; j++) {
+            if (!cf_dns_role_map_add_str(map, roles[i].addresses[j], roles[i].label))
+                cf_log(CF_LOG_WARN, "config: ignoring malformed service_role address",
+                       "label", roles[i].label, "value", roles[i].addresses[j], NULL);
+        }
+    }
+    return map;
+}
+
 int main(int argc, char *argv[])
 {
     const char *config_path = NULL;
@@ -97,6 +121,7 @@ int main(int argc, char *argv[])
     const char **endpoints = NULL;
     cf_dns_addr_set_t *local_addrs = NULL;
     cf_dns_addr_set_t *backend_addrs = NULL;
+    cf_dns_role_map_t *role_map = NULL;
     char hostname[256];
     int exit_code = 0;
 
@@ -177,6 +202,14 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
+    /* Build the WP-DNS11a service-role map (server-side address -> operator
+     * label) from config. */
+    role_map = build_role_map(cfg->dns_service_roles, cfg->dns_service_role_count);
+    if (!role_map) {
+        exit_code = 1;
+        goto cleanup;
+    }
+
     /* Build the const endpoints array the producer expects. */
     endpoints = calloc(cfg->redis_endpoint_count, sizeof(*endpoints));
     if (!endpoints) {
@@ -241,6 +274,7 @@ int main(int argc, char *argv[])
         scfg.correlator.on_table_full = cfg->dns_on_table_full;
         scfg.local_addrs = local_addrs;
         scfg.backend_addrs = backend_addrs;
+        scfg.role_map = role_map;
         scfg.emit_policy.mode = cfg->dns_emit_mode;
         scfg.emit_policy.sample_denominator = cfg->dns_sample_denominator;
 
@@ -363,6 +397,7 @@ cleanup:
 
     cf_dns_addr_set_free(local_addrs);
     cf_dns_addr_set_free(backend_addrs);
+    cf_dns_role_map_free(role_map);
     free(endpoints);
     cf_config_free(cfg);
 

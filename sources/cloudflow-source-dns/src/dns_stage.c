@@ -657,7 +657,20 @@ static void dns_stage_emit(void *user, cf_dns_txn_outcome_t outcome,
     cf_format_ip(ipbuf, key->ip_version, key->server_ip);
     txn->server_ip = dns_dup_str(ipbuf);
 
-    if (!txn->transaction_key || !txn->client_ip || !txn->server_ip) {
+    /* WP-DNS11a: tag the transaction with the operator's service role for the
+     * server-side address. Only when the server side is determinate (role !=
+     * UNKNOWN, i.e. one endpoint genuinely owned :53) and the address is mapped;
+     * otherwise the field stays empty (dns_dup_str(NULL) -> ""). It is an
+     * additional operator dimension and never changes the leg role above. */
+    {
+        const char *service_role = NULL;
+
+        if (role != CLOUDFLOW__V1__DNS_LEG__DNS_LEG_UNKNOWN && s->cfg.role_map)
+            service_role = cf_dns_role_lookup(s->cfg.role_map, key->ip_version, key->server_ip);
+        txn->service_role = dns_dup_str(service_role);
+    }
+
+    if (!txn->transaction_key || !txn->client_ip || !txn->server_ip || !txn->service_role) {
         cloudflow__v1__dns_transaction_event__free_unpacked(txn, NULL);
         dns_ctx_free(q);
         dns_ctx_free(r);

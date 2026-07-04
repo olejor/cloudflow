@@ -139,6 +139,59 @@ static void test_full_config(void)
     cf_config_free(cfg);
 }
 
+/* dns.service_roles (WP-DNS11a): valid groups are stored; malformed entries (no
+ * label, no usable addresses) are logged and skipped, never fatal. */
+static void test_service_roles(void)
+{
+    static const char *body =
+        "dns:\n"
+        "  service_roles:\n"
+        "    - addresses: [192.0.2.53, 192.0.2.54]\n"
+        "      label: dnsdist\n"
+        "    - addresses: [2001:db8::55]\n"
+        "      label: recursor\n"
+        "    - addresses: [192.0.2.60]\n"      /* no label -> skipped */
+        "    - label: no_addresses\n";         /* no addresses -> skipped */
+    char path[64];
+    cf_dns_config_t *cfg;
+
+    CU_ASSERT_EQUAL_FATAL(write_tmp(body, path, sizeof(path)), 0);
+    cfg = cf_config_load(path);
+    unlink(path);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cfg);
+    /* Only the two well-formed groups survive. */
+    CU_ASSERT_EQUAL_FATAL(cfg->dns_service_role_count, 2u);
+
+    CU_ASSERT_STRING_EQUAL(cfg->dns_service_roles[0].label, "dnsdist");
+    CU_ASSERT_EQUAL_FATAL(cfg->dns_service_roles[0].address_count, 2u);
+    CU_ASSERT_STRING_EQUAL(cfg->dns_service_roles[0].addresses[0], "192.0.2.53");
+    CU_ASSERT_STRING_EQUAL(cfg->dns_service_roles[0].addresses[1], "192.0.2.54");
+
+    CU_ASSERT_STRING_EQUAL(cfg->dns_service_roles[1].label, "recursor");
+    CU_ASSERT_EQUAL_FATAL(cfg->dns_service_roles[1].address_count, 1u);
+    CU_ASSERT_STRING_EQUAL(cfg->dns_service_roles[1].addresses[0], "2001:db8::55");
+
+    cf_config_free(cfg);
+}
+
+/* No dns.service_roles key -> empty map (the default). */
+static void test_service_roles_default_empty(void)
+{
+    char path[64];
+    cf_dns_config_t *cfg;
+
+    CU_ASSERT_EQUAL_FATAL(write_tmp("service: {}\n", path, sizeof(path)), 0);
+    cfg = cf_config_load(path);
+    unlink(path);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cfg);
+    CU_ASSERT_EQUAL(cfg->dns_service_role_count, 0u);
+    CU_ASSERT_PTR_NULL(cfg->dns_service_roles);
+
+    cf_config_free(cfg);
+}
+
 /* An unsupported capture.method is a fatal error (returns NULL). */
 static void test_bad_method_is_fatal(void)
 {
@@ -197,6 +250,8 @@ int main(void)
 
     if (!CU_add_test(suite, "defaults on empty config", test_defaults_on_empty) ||
         !CU_add_test(suite, "full config parses every field", test_full_config) ||
+        !CU_add_test(suite, "dns.service_roles parses + skips malformed", test_service_roles) ||
+        !CU_add_test(suite, "dns.service_roles default empty", test_service_roles_default_empty) ||
         !CU_add_test(suite, "unsupported capture.method is fatal", test_bad_method_is_fatal) ||
         !CU_add_test(suite, "missing file is fatal", test_missing_file_is_fatal) ||
         !CU_add_test(suite, "CF_REDIS_ENDPOINTS override", test_env_override_endpoints)) {

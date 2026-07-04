@@ -68,6 +68,45 @@ void cf_dns_addr_set_add_ip(cf_dns_addr_set_t *set, uint8_t ip_version,
 int cf_dns_addr_set_contains(const cf_dns_addr_set_t *set, uint8_t ip_version,
                              const uint8_t ip[16]);
 
+/* An ordered address -> label map (WP-DNS11a, a DNS-D7 extension). Parallel to
+ * cf_dns_addr_set but each stored address also carries an operator-defined
+ * service-role label (e.g. "dnsdist" / "recursor" / "authoritative"). It is
+ * built from a config list of {addresses[], label} groups and consulted with
+ * the transaction's *server-side* address, so a transaction's service_role is
+ * the label the operator assigned to whichever DNS service owns :53 -- a config
+ * dimension that does NOT change the leg `role` decided by cf_dns_classify_leg.
+ *
+ * Version-aware exact match like cf_dns_addr_set (a v4 address never matches a
+ * v6 entry). Lookup is first-match-wins in insertion order. The map owns a copy
+ * of every label string; cf_dns_role_map_free releases the backing array and
+ * every label (ASan-clean). */
+typedef struct cf_dns_role_map cf_dns_role_map_t;
+
+/* Allocates an empty role map. Returns NULL on allocation failure. */
+cf_dns_role_map_t *cf_dns_role_map_new(void);
+
+/* Frees a role map, its backing array, and every owned label. NULL is a no-op. */
+void cf_dns_role_map_free(cf_dns_role_map_t *map);
+
+/* Parses `ip` with inet_pton and adds it mapped to `label` (copied). Returns 1
+ * on success, 0 if `ip` is malformed / not a valid IPv4 or IPv6 literal, if
+ * `label` is NULL/empty, or on allocation failure (the map is left unchanged).
+ * A later entry for the same address does not replace an earlier one -- lookup
+ * returns the first match in insertion order. */
+int cf_dns_role_map_add_str(cf_dns_role_map_t *map, const char *ip, const char *label);
+
+/* Adds a raw address (same convention as cf_dns_addr_set_add_ip) mapped to
+ * `label` (copied). A version that is neither 4 nor 6, a NULL/empty label, or
+ * an allocation failure is ignored (the map is left unchanged). */
+void cf_dns_role_map_add_ip(cf_dns_role_map_t *map, uint8_t ip_version,
+                            const uint8_t ip[16], const char *label);
+
+/* Version-aware exact-match lookup for a server-side IP: returns the borrowed
+ * label string for (`ip_version`, `ip`) (owned by the map, valid until it is
+ * freed) or NULL if the address is not mapped. A NULL map returns NULL. */
+const char *cf_dns_role_lookup(const cf_dns_role_map_t *map, uint8_t ip_version,
+                               const uint8_t ip[16]);
+
 /* Capture direction from the rx ring (DNS-D7 step 2). UNKNOWN is the honest
  * value on SPAN/mirror captures where kernel packet direction is meaningless;
  * it is why the address sets, not direction, are authoritative. */

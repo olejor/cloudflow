@@ -35,6 +35,11 @@ message DnsTransactionEvent {
   uint32 client_port = 10;
   string server_ip = 11;
 
+  // Operator-assigned service role -- e.g. dnsdist/recursor/authoritative --
+  // from config, keyed on the server-side address; empty if unmapped. Purely
+  // an operator label; it does not change the leg `role` above (DNS-D7).
+  string service_role = 12;
+
   repeated ParserWarning parser_warnings = 20;
 }
 

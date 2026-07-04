@@ -124,6 +124,95 @@ static void test_addr_set_growth(void)
     cf_dns_addr_set_free(s);
 }
 
+/* ---- role map (WP-DNS11a) -------------------------------------------------- */
+
+static void test_role_map_build_and_lookup(void)
+{
+    cf_dns_role_map_t *m = cf_dns_role_map_new();
+    uint8_t v4[16], v6[16], other[16];
+    const char *label;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(m);
+
+    /* good literals mapped to labels */
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, "192.0.2.53", "dnsdist"), 1);
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, "192.0.2.54", "recursor"), 1);
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, "2001:db8::53", "authoritative"), 1);
+
+    /* malformed address / empty-or-NULL label rejected, map unchanged */
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, "not-an-ip", "x"), 0);
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, "192.0.2.60", ""), 0);
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, "192.0.2.60", NULL), 0);
+
+    make_ip("192.0.2.53", v4);
+    make_ip("2001:db8::53", v6);
+    make_ip("192.0.2.99", other);
+
+    label = cf_dns_role_lookup(m, 4, v4);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(label);
+    CU_ASSERT_STRING_EQUAL(label, "dnsdist");
+
+    label = cf_dns_role_lookup(m, 6, v6);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(label);
+    CU_ASSERT_STRING_EQUAL(label, "authoritative");
+
+    /* an address that was never mapped returns NULL */
+    CU_ASSERT_PTR_NULL(cf_dns_role_lookup(m, 4, other));
+
+    cf_dns_role_map_free(m);
+}
+
+static void test_role_map_v4_v6_isolation(void)
+{
+    cf_dns_role_map_t *m = cf_dns_role_map_new();
+    uint8_t bytes[16];
+    CU_ASSERT_PTR_NOT_NULL_FATAL(m);
+
+    /* Same first-4-byte pattern stored as v4 must not match when queried v6. */
+    memset(bytes, 0, sizeof(bytes));
+    bytes[0] = 192; bytes[1] = 0; bytes[2] = 2; bytes[3] = 53;
+    cf_dns_role_map_add_ip(m, 4, bytes, "recursor");
+
+    CU_ASSERT_PTR_NOT_NULL(cf_dns_role_lookup(m, 4, bytes));
+    CU_ASSERT_STRING_EQUAL(cf_dns_role_lookup(m, 4, bytes), "recursor");
+    CU_ASSERT_PTR_NULL(cf_dns_role_lookup(m, 6, bytes));
+
+    cf_dns_role_map_free(m);
+}
+
+static void test_role_map_first_match_and_edges(void)
+{
+    cf_dns_role_map_t *m = cf_dns_role_map_new();
+    uint8_t ip[16];
+    int i;
+    char lit[32];
+    CU_ASSERT_PTR_NOT_NULL_FATAL(m);
+
+    /* First mapping for an address wins over a later duplicate. */
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, "192.0.2.53", "first"), 1);
+    CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, "192.0.2.53", "second"), 1);
+    make_ip("192.0.2.53", ip);
+    CU_ASSERT_STRING_EQUAL(cf_dns_role_lookup(m, 4, ip), "first");
+
+    /* Grow past the initial capacity (8) to exercise realloc under ASan. */
+    for (i = 0; i < 40; i++) {
+        snprintf(lit, sizeof(lit), "198.51.100.%d", i);
+        CU_ASSERT_EQUAL(cf_dns_role_map_add_str(m, lit, "bulk"), 1);
+    }
+    for (i = 0; i < 40; i++) {
+        snprintf(lit, sizeof(lit), "198.51.100.%d", i);
+        make_ip(lit, ip);
+        CU_ASSERT_STRING_EQUAL(cf_dns_role_lookup(m, 4, ip), "bulk");
+    }
+
+    /* invalid version ignored; NULL map / NULL free safe */
+    cf_dns_role_map_add_ip(m, 7, ip, "x");
+    CU_ASSERT_PTR_NULL(cf_dns_role_lookup(m, 7, ip));
+    CU_ASSERT_PTR_NULL(cf_dns_role_lookup(NULL, 4, ip));
+
+    cf_dns_role_map_free(m);
+    cf_dns_role_map_free(NULL); /* no-op */
+}
+
 /* ---- classifier: CLIENT_FACING (local server on :53) ---------------------- */
 
 static void test_client_facing_query_and_response(void)
@@ -391,6 +480,9 @@ int main(void)
         !CU_add_test(suite, "addr set: v4/v6 isolation", test_addr_set_v4_v6_isolation) ||
         !CU_add_test(suite, "addr set: add via bytes + edge cases", test_addr_set_add_ip_bytes) ||
         !CU_add_test(suite, "addr set: growth past initial capacity", test_addr_set_growth) ||
+        !CU_add_test(suite, "role map: build + lookup", test_role_map_build_and_lookup) ||
+        !CU_add_test(suite, "role map: v4/v6 isolation", test_role_map_v4_v6_isolation) ||
+        !CU_add_test(suite, "role map: first-match + growth + edges", test_role_map_first_match_and_edges) ||
         !CU_add_test(suite, "CLIENT_FACING query + response", test_client_facing_query_and_response) ||
         !CU_add_test(suite, "CLIENT_FACING IPv6", test_client_facing_ipv6) ||
         !CU_add_test(suite, "BACKEND remote :53 in backend set", test_backend) ||
