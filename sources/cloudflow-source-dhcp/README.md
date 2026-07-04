@@ -129,6 +129,15 @@ via a tight `CapabilityBoundingSet=CAP_NET_RAW CAP_SYS_NICE` and allows
 `RestrictAddressFamilies=AF_PACKET AF_INET AF_INET6 AF_UNIX` — sinks are stricter
 (no raw socket, empty capability set, no `AF_PACKET`).
 
+### SELinux
+
+`selinux/cloudflow_source_dhcp.{te,fc}` confine the daemon to the
+`cloudflow_source_dhcp_t` domain on RHEL 9: `CAP_NET_RAW`/`CAP_SYS_NICE` for the
+capture ring, best-effort `SCHED_FIFO`, outbound TCP to Redis, and read-only
+access to a private `cloudflow_source_dhcp_conf_t` type that labels
+`dhcp-source.yaml`. Build with `make -C selinux` and install per
+`docs/selinux.md`, which also covers the permissive-first rollout.
+
 ## WP-08: rx-reader capture module + pcap replay
 
 `src/rx_reader.{h,c}` and `src/pcap_replay.{h,c}` implement the first stage

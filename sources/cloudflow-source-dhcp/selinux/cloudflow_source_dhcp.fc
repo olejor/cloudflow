@@ -1,0 +1,8 @@
+# cloudflow-source-dhcp file contexts
+#
+# The binary is the domain entrypoint; the YAML config gets a private type so
+# no other confined domain can read it.
+
+/usr/local/bin/cloudflow-source-dhcp	--	gen_context(system_u:object_r:cloudflow_source_dhcp_exec_t,s0)
+
+/etc/cloudflow/dhcp-source\.yaml	--	gen_context(system_u:object_r:cloudflow_source_dhcp_conf_t,s0)

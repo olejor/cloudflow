@@ -1,0 +1,65 @@
+policy_module(cloudflow_sink_clickhouse, 1.0.0)
+
+########################################
+#
+# Declarations
+#
+
+## <desc>
+##	<p>
+##	CloudFlow ClickHouse sink: reads the wire streams from Redis and writes
+##	each decoded CloudFlowEvent as a row into a ClickHouse table over the HTTP
+##	interface (HTTPS). A pure network client -- no raw sockets, no
+##	capabilities.
+##	</p>
+## </desc>
+
+type cloudflow_sink_clickhouse_t;
+type cloudflow_sink_clickhouse_exec_t;
+init_daemon_domain(cloudflow_sink_clickhouse_t, cloudflow_sink_clickhouse_exec_t)
+
+# Private config type for the YAML plus its EnvironmentFile of secrets
+# (ClickHouse basic-auth credentials, Redis credentials).
+type cloudflow_sink_clickhouse_conf_t;
+files_config_file(cloudflow_sink_clickhouse_conf_t)
+
+########################################
+#
+# Local policy
+#
+
+# No Linux capabilities: the sink only makes outbound TCP connections.
+allow cloudflow_sink_clickhouse_t self:process { getsched signal signull };
+allow cloudflow_sink_clickhouse_t self:fifo_file rw_fifo_file_perms;
+
+# Outbound TCP: Redis (redis_port_t) to consume streams, and the ClickHouse
+# HTTP interface over HTTPS (http_port_t covers 443/8443/9000; label a
+# non-standard native-HTTP port such as 8123 with
+# `semanage port -a -t http_port_t -p tcp 8123`, see docs/selinux.md). The
+# sink never listens.
+allow cloudflow_sink_clickhouse_t self:tcp_socket create_stream_socket_perms;
+corenet_all_recvfrom_unlabeled(cloudflow_sink_clickhouse_t)
+corenet_all_recvfrom_netlabel(cloudflow_sink_clickhouse_t)
+corenet_tcp_sendrecv_generic_if(cloudflow_sink_clickhouse_t)
+corenet_tcp_sendrecv_generic_node(cloudflow_sink_clickhouse_t)
+corenet_tcp_connect_redis_port(cloudflow_sink_clickhouse_t)
+corenet_tcp_sendrecv_redis_port(cloudflow_sink_clickhouse_t)
+corenet_tcp_connect_http_port(cloudflow_sink_clickhouse_t)
+corenet_tcp_sendrecv_http_port(cloudflow_sink_clickhouse_t)
+sysnet_dns_name_resolve(cloudflow_sink_clickhouse_t)
+
+# Read its own YAML + EnvironmentFile (and nothing else) under /etc/cloudflow.
+read_files_pattern(cloudflow_sink_clickhouse_t, cloudflow_sink_clickhouse_conf_t, cloudflow_sink_clickhouse_conf_t)
+files_search_etc(cloudflow_sink_clickhouse_t)
+
+# libcurl/OpenSSL TLS: read the system trust store and crypto policy, and draw
+# entropy from /dev/urandom.
+miscfiles_read_generic_certs(cloudflow_sink_clickhouse_t)
+dev_read_urand(cloudflow_sink_clickhouse_t)
+
+# Structured JSON logs -> inherited stderr fd -> journald; syslog allowed too.
+logging_send_syslog_msg(cloudflow_sink_clickhouse_t)
+
+# Read-only bits every daemon touches.
+files_read_etc_files(cloudflow_sink_clickhouse_t)
+miscfiles_read_localization(cloudflow_sink_clickhouse_t)

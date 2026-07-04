@@ -1,0 +1,10 @@
+# cloudflow-sink-splunk file contexts
+#
+# The binary is the domain entrypoint; the YAML config and the secrets
+# EnvironmentFile both get the private conf type so no other confined domain
+# can read them.
+
+/usr/local/bin/cloudflow-sink-splunk	--	gen_context(system_u:object_r:cloudflow_sink_splunk_exec_t,s0)
+
+/etc/cloudflow/splunk-sink\.yaml	--	gen_context(system_u:object_r:cloudflow_sink_splunk_conf_t,s0)
+/etc/cloudflow/splunk-sink\.env	--	gen_context(system_u:object_r:cloudflow_sink_splunk_conf_t,s0)

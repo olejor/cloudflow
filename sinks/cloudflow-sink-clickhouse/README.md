@@ -211,3 +211,15 @@ the daemon writes nothing to disk — logs go to journald — so no
 `ProtectKernel{Modules,Tunables}`, `LockPersonality`, `MemoryDenyWriteExecute`,
 `RestrictRealtime`, `RestrictSUIDSGID`, `RestrictNamespaces`,
 `SystemCallArchitectures=native`, and `SystemCallFilter=@system-service`.
+
+## SELinux
+
+`selinux/cloudflow_sink_clickhouse.{te,fc}` confine the daemon to the
+`cloudflow_sink_clickhouse_t` domain on RHEL 9: no capabilities, outbound TCP to
+Redis and to the ClickHouse HTTP interface over HTTPS (`http_port_t`, which
+already covers the shipped `:8443` example), TLS trust-store reads, and
+read-only access to a private `cloudflow_sink_clickhouse_conf_t` type that
+labels `clickhouse-sink.yaml` and the secrets `clickhouse-sink.env`. A
+non-standard native-HTTP port needs a one-time
+`semanage port -a -t http_port_t -p tcp 8123`. Build with `make -C selinux` and
+install per `docs/selinux.md`.

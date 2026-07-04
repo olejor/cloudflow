@@ -75,6 +75,7 @@ cloudflow/
 │   ├── splunk-metrics.md
 │   ├── clickhouse-sink.md
 │   ├── failure-modes.md
+│   ├── selinux.md
 │   └── building-and-testing.md
 │
 ├── proto/
@@ -98,11 +99,13 @@ cloudflow/
 │   │   ├── src/
 │   │   ├── tests/
 │   │   ├── systemd/
+│   │   ├── selinux/
 │   │   └── README.md
 │   └── cloudflow-source-dns/
 │       ├── src/
 │       ├── tests/
 │       ├── systemd/
+│       ├── selinux/
 │       └── README.md
 │
 ├── sinks/
@@ -110,12 +113,14 @@ cloudflow/
 │   │   ├── src/
 │   │   ├── config/
 │   │   ├── systemd/
+│   │   ├── selinux/
 │   │   ├── tests/
 │   │   └── README.md
 │   ├── cloudflow-sink-splunk-metrics/
 │   │   ├── src/
 │   │   ├── config/
 │   │   ├── systemd/
+│   │   ├── selinux/
 │   │   ├── tests/
 │   │   └── README.md
 │   └── cloudflow-sink-clickhouse/
@@ -123,6 +128,7 @@ cloudflow/
 │       ├── schema/
 │       ├── config/
 │       ├── systemd/
+│       ├── selinux/
 │       ├── tests/
 │       └── README.md
 │

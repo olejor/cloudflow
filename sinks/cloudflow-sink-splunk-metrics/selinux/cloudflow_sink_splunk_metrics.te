@@ -1,0 +1,63 @@
+policy_module(cloudflow_sink_splunk_metrics, 1.0.0)
+
+########################################
+#
+# Declarations
+#
+
+## <desc>
+##	<p>
+##	CloudFlow Splunk metrics sink: reads the wire streams from Redis, derives
+##	metric points (RTT/rate/count), and POSTs them to Splunk's metrics HEC
+##	endpoint over HTTPS. A pure network client -- no raw sockets, no
+##	capabilities.
+##	</p>
+## </desc>
+
+type cloudflow_sink_splunk_metrics_t;
+type cloudflow_sink_splunk_metrics_exec_t;
+init_daemon_domain(cloudflow_sink_splunk_metrics_t, cloudflow_sink_splunk_metrics_exec_t)
+
+# Private config type for the YAML plus its EnvironmentFile of secrets.
+type cloudflow_sink_splunk_metrics_conf_t;
+files_config_file(cloudflow_sink_splunk_metrics_conf_t)
+
+########################################
+#
+# Local policy
+#
+
+# No Linux capabilities: the sink only makes outbound TCP connections.
+allow cloudflow_sink_splunk_metrics_t self:process { getsched signal signull };
+allow cloudflow_sink_splunk_metrics_t self:fifo_file rw_fifo_file_perms;
+
+# Outbound TCP: Redis (redis_port_t) to consume streams, and the Splunk metrics
+# HEC over HTTPS (http_port_t covers 443/8443/9000; label a non-standard HEC
+# port such as 8088 with `semanage port -a -t http_port_t -p tcp 8088`, see
+# docs/selinux.md). The sink never listens.
+allow cloudflow_sink_splunk_metrics_t self:tcp_socket create_stream_socket_perms;
+corenet_all_recvfrom_unlabeled(cloudflow_sink_splunk_metrics_t)
+corenet_all_recvfrom_netlabel(cloudflow_sink_splunk_metrics_t)
+corenet_tcp_sendrecv_generic_if(cloudflow_sink_splunk_metrics_t)
+corenet_tcp_sendrecv_generic_node(cloudflow_sink_splunk_metrics_t)
+corenet_tcp_connect_redis_port(cloudflow_sink_splunk_metrics_t)
+corenet_tcp_sendrecv_redis_port(cloudflow_sink_splunk_metrics_t)
+corenet_tcp_connect_http_port(cloudflow_sink_splunk_metrics_t)
+corenet_tcp_sendrecv_http_port(cloudflow_sink_splunk_metrics_t)
+sysnet_dns_name_resolve(cloudflow_sink_splunk_metrics_t)
+
+# Read its own YAML + EnvironmentFile (and nothing else) under /etc/cloudflow.
+read_files_pattern(cloudflow_sink_splunk_metrics_t, cloudflow_sink_splunk_metrics_conf_t, cloudflow_sink_splunk_metrics_conf_t)
+files_search_etc(cloudflow_sink_splunk_metrics_t)
+
+# libcurl/OpenSSL TLS: read the system trust store and crypto policy, and draw
+# entropy from /dev/urandom.
+miscfiles_read_generic_certs(cloudflow_sink_splunk_metrics_t)
+dev_read_urand(cloudflow_sink_splunk_metrics_t)
+
+# Structured JSON logs -> inherited stderr fd -> journald; syslog allowed too.
+logging_send_syslog_msg(cloudflow_sink_splunk_metrics_t)
+
+# Read-only bits every daemon touches.
+files_read_etc_files(cloudflow_sink_splunk_metrics_t)
+miscfiles_read_localization(cloudflow_sink_splunk_metrics_t)
