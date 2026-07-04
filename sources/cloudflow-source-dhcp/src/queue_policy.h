@@ -1,7 +1,7 @@
 #ifndef CF_SOURCE_DHCP_QUEUE_POLICY_H
 #define CF_SOURCE_DHCP_QUEUE_POLICY_H
 
-/* D9 backpressure policy (docs/design/00-overview.md): every cf_queue in the
+/* D9 backpressure policy (docs/architecture.md): every cf_queue in the
  * source pipeline has an explicit on_full policy loaded from config, and
  * every drop it causes increments a named counter. This header/",.c" pair
  * is the one shared implementation of that policy, used by both the

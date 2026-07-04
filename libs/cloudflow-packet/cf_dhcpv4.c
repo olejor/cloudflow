@@ -3,7 +3,7 @@
  * tracking), and the derived DhcpV4Interpretation. The decoded-option
  * builder (option-by-option semantic decode) lives in cf_dhcpv4_decode.c;
  * shared helpers live in cf_dhcpv4_util.c. See
- * docs/design/02-packet-and-parsing.md for the spec this implements, and
+ * docs/dhcp-source.md for the spec this implements, and
  * import/network_dhcp_collector/src/main.c's process_dhcpv4 /
  * src/test.c's variant for the TLV-walk shape this is lifted from (pad/end
  * handling, memcpy discipline) -- extended here with bounds-checked

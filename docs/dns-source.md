@@ -1,12 +1,13 @@
 # CloudFlow DNS source design (v0.2)
 
 This is the design for the second CloudFlow source: wire-observed DNS
-telemetry. It follows the same structure as the DHCP design set
-(`00-overview.md` through `06-sink-splunk-c.md`) and reuses everything that
-is protocol-agnostic — the core library, the codec, the packet decap library,
-the Redis producer, and the Splunk sink. Read `00-overview.md` first for the
-project conventions and the decision/work-package format; this document adds
-DNS-specific decisions (prefixed `DNS-Dn`) and work packages (`WP-DNSnn`).
+telemetry. It follows the same shape as the DHCP source
+(`docs/dhcp-source.md`) and reuses everything protocol-agnostic — the core
+library, the codec, the packet decap library, the Redis producer, and the
+Splunk sink. Read `docs/architecture.md` first for the project conventions
+and decision numbering (`D1`..`D11`); this document adds DNS-specific
+decisions (prefixed `DNS-Dn`) and a work-package roadmap (`WP-DNSnn`) for the
+still-unimplemented parts.
 
 > **Scope note.** `AGENTS.md` lists a DNS source under "Current non-goals …
 > unless a task explicitly requests it." This document is that explicit
@@ -33,8 +34,8 @@ wire feed. That bridge is not part of this design.
 
 ## Decisions
 
-Numbered `DNS-D1…`, continuing the spirit of `00-overview.md`'s `D1…D11`.
-Deviations must be flagged in the PR and this doc updated.
+Numbered `DNS-D1…`, continuing the spirit of `docs/architecture.md`'s
+`D1…D11`. Deviations must be flagged in the PR and this doc updated.
 
 - **DNS-D1 — Transport scope.** udp/53 and tcp/53 only. No DoH, DoT, DoQ.
   DNS-over-TCP is parsed only when a full DNS message (its 2-byte length
@@ -144,6 +145,15 @@ message DnsTransactionEvent {
   // Correlation provenance for debugging: the key fields used to match.
   string transaction_key = 8;
 
+  // Normalized identity, surfaced directly so sinks (and Splunk-metric
+  // dimensioning) do not have to reach into query_packet.network. These are
+  // the "who did this" fields for DNS per docs/event-model.md: for the
+  // client-facing leg client_ip is the querying client; for the upstream leg
+  // it is the recursor and server_ip is the authoritative it asked.
+  string client_ip = 9;
+  uint32 client_port = 10;
+  string server_ip = 11;
+
   repeated ParserWarning parser_warnings = 20;
 }
 
@@ -221,7 +231,8 @@ The heart of the source, specified for WP-DNS04.
   timeout), evict the older one as `dns.query.unanswered` (counted
   `dns_pending_evicted_collision_total`). If the table is at capacity, apply
   `dns.on_table_full` policy (default `drop_newest`, counted
-  `dns_pending_drop_total`) — same explicit-policy discipline as D9 queues.
+  `dns_pending_drop_total`) — same explicit-policy discipline as the D9
+  queues.
 - **Match.** On a parsed response, swap endpoints, look up the key. Hit →
   emit `dns.transaction.observed` with `rtt_nanos`, remove the entry. Miss →
   emit `dns.response.unmatched` (counted `dns_response_unmatched_total`).
@@ -243,10 +254,13 @@ The heart of the source, specified for WP-DNS04.
   `dns_pending_evicted_collision_total`, `dns_rtt_invalid_total`,
   `dns_sampled_out_total`, `dns_tcp_partial_total`.
 
+See `docs/failure-modes.md` for how these bounded-table failure modes fit
+alongside the rest of the pipeline's loss accounting.
+
 ## Work packages
 
 Sized for independent implementation by the same agent fleet, in dependency
-order. `S/M/L` as in `00-overview.md`.
+order. `S/M/L` sizing as in `docs/architecture.md`.
 
 | WP | Title | Depends on | Size |
 |---|---|---|---|
@@ -277,13 +291,14 @@ plus the sink mapping — replay a query+response pcap pair, observe one
 
 ## Fixture and test policy
 
-Same as DHCP (`02-packet-and-parsing.md`): a committed scapy generator
-produces deterministic, sanitized pcaps under `tests/fixtures/dns/` using
-documentation address space (RFC 5737 / RFC 3849) — including **query+response
-pairs** so the correlation stage can be driven end to end offline via the
-replay path, plus single packets for the unanswered/unmatched cases. The
-correlation table gets its own unit tests (insert/match/evict/timeout/
-collision, table-full policy) independent of packet parsing.
+Same approach as the DHCP source (`docs/dhcp-source.md`): a committed scapy
+generator produces deterministic, sanitized pcaps under
+`tests/fixtures/dns/` using documentation address space (RFC 5737 / RFC
+3849) — including **query+response pairs** so the correlation stage can be
+driven end to end offline via the replay path, plus single packets for the
+unanswered/unmatched cases. The correlation table gets its own unit tests
+(insert/match/evict/timeout/collision, table-full policy) independent of
+packet parsing.
 
 ## Non-goals (v0.2)
 

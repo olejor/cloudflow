@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 /* Structured logging: one JSON object per line on stderr, per
- * docs/design/00-overview.md Convention 7. Every line has at minimum
+ * docs/architecture.md Convention 7. Every line has at minimum
  * "ts" (RFC3339 UTC), "level", "service", and "msg", plus whatever
  * key/value pairs the caller passes.
  *

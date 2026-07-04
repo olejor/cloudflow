@@ -8,7 +8,7 @@
 
 /* DHCPv4 parser (WP-06). Pure computation: the UDP payload in -> a
  * heap-allocated Cloudflow__V1__DhcpV4PacketEvent tree out. No sockets, no
- * Redis, no threads. See docs/design/02-packet-and-parsing.md ("Shared
+ * Redis, no threads. See docs/dhcp-source.md ("Shared
  * parser conventions" and the WP-06 section) for the authoritative spec
  * this implements.
  *

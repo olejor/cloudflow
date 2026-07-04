@@ -10,7 +10,7 @@
  * rather than failing the build.
  *
  * Three tests, matching the WP-09 acceptance criteria in
- * docs/design/03-source-dhcp.md:
+ * docs/dhcp-source.md:
  *
  *   A. round-trip: push N=500 items across both DHCP streams with distinct,
  *      deterministic payload bytes; stop; verify via a raw hiredis

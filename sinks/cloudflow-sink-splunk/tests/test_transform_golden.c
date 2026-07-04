@@ -6,7 +6,7 @@
  * generate_fixtures.py), run the C transform, and compare the emitted HEC
  * JSON against the golden with a STRUCTURAL compare (python3 json equality,
  * not byte order). Proves the C transform is compatible with the WP-12
- * Python mapping (docs/design/06-sink-splunk-c.md, "Mapping compatibility").
+ * Python mapping (docs/splunk-output.md, "Mapping compatibility").
  */
 
 #include <CUnit/Basic.h>

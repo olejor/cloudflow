@@ -1,12 +1,16 @@
 # Redis Streams
 
-Redis Streams provide buffering, replay, and consumer group delivery.
+Redis Streams are the transport between sources and sinks: they provide
+buffering, durable replay, and consumer-group delivery. A source only ever
+appends (`XADD`); a sink reads through a named consumer group and acknowledges
+after confirmed delivery.
 
-Initial streams:
+Wire streams:
 
 ```text
-cloudflow:v1:wire:dhcpv4
-cloudflow:v1:wire:dhcpv6
+cloudflow:v1:wire:dhcpv4   (v0.1, implemented)
+cloudflow:v1:wire:dhcpv6   (v0.1, implemented)
+cloudflow:v1:wire:dns      (v0.2, designed — see docs/dns-source.md)
 ```
 
 Entry fields (the payload wrapper is `cloudflow.v1.CloudFlowEvent`, which
@@ -53,3 +57,27 @@ origin_id      <redis entry id>
 error          <short message>
 payload        <original payload bytes, verbatim>
 ```
+
+## Consumer groups
+
+Each stream is trimmed with `MAXLEN ~` (approximate trimming; the trim target
+comes from `redis.maxlen_approx` in the source's config, and from
+`configs/examples/redis.yaml`), so Redis itself never grows unbounded.
+
+Every sink type reads through its own consumer group, so one sink's progress
+and pending entries never block another sink reading the same stream. This is
+what lets several sinks consume the same streams independently (see the sinks
+table in `docs/architecture.md`):
+
+```text
+sink-splunk            cloudflow-sink-splunk (event index) — implemented
+sink-splunk-metrics    cloudflow-sink-splunk-metrics (metrics index) — designed
+sink-clickhouse        cloudflow-sink-clickhouse (columnar analytics) — designed
+```
+
+Each sink also has its own dead-letter stream
+(`cloudflow:v1:deadletter:<group>`), so an unprocessable event for one
+destination never affects another.
+
+Details of consumer behavior (`XAUTOCLAIM`, `XREADGROUP`, ack-after-delivery)
+live in `docs/splunk-output.md`.

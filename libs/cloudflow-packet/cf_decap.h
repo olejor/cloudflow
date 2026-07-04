@@ -13,7 +13,7 @@
  * the frame, so it has no alignment/strict-aliasing UB regardless of how
  * the frame buffer itself is aligned.
  *
- * See docs/design/02-packet-and-parsing.md (WP-05) for the authoritative
+ * See docs/dhcp-source.md (WP-05) for the authoritative
  * spec this header implements verbatim.
  */
 

@@ -30,7 +30,7 @@
 /* ---- singleton state ---------------------------------------------------
  *
  * cf_redis_producer_start()/stop() take no context handle (matching the
- * exact signatures in docs/design/03-source-dhcp.md), so -- like
+ * exact signatures in docs/dhcp-source.md), so -- like
  * rx_reader_start()/stop() in WP-08 -- exactly one producer instance may
  * run at a time per process. The thread owns g_cfg for its entire run (a
  * private copy taken at start() time); nothing else touches it while the

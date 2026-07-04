@@ -1,7 +1,7 @@
 /* WP-17 consumer suite against a private redis-server (same spawn/skip
  * pattern as libs/cloudflow-redis/tests).
  *
- * docs/design/04-sink-splunk.md acceptance criteria:
+ * docs/splunk-output.md acceptance criteria:
  *  - 100 events -> `--once --stdout` prints 100 mapped events, 0 pending;
  *  - a crashed consumer's pending entries are reclaimed by a second consumer
  *    via XAUTOCLAIM;

@@ -1,7 +1,7 @@
 /* libs/cloudflow-packet/cf_decap.c
  *
  * Ethernet -> (up to 2 VLAN tags) -> IPv4/IPv6 -> UDP decapsulation. See
- * cf_decap.h and docs/design/02-packet-and-parsing.md (WP-05) for the
+ * cf_decap.h and docs/dhcp-source.md (WP-05) for the
  * contract.
  *
  * Every multi-byte read is a memcpy into a local variable followed by an

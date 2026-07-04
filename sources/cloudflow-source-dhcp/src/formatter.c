@@ -182,7 +182,7 @@ static Cloudflow__V1__PacketObservation *build_packet_observation(const cf_packe
 }
 
 /* ------------------------------------------------------------------------
- * EventEnvelope builder, per docs/design/03-source-dhcp.md's WP-10 section
+ * EventEnvelope builder, per docs/dhcp-source.md's WP-10 section
  * and proto/cloudflow/v1/envelope.proto.
  */
 
@@ -393,7 +393,7 @@ int cf_format_packet(const formatter_config_t *cfg, const cf_packet_item_t *pkt,
 /* ------------------------------------------------------------------------
  * formatter_start()/formatter_stop(): the thread wrapper. Polls `in` with a
  * 1ms cf_sleep_ns() backoff when empty (DHCP is low-rate -- see D10 in
- * docs/design/00-overview.md -- so there is no epoll/eventfd wiring here,
+ * docs/architecture.md -- so there is no epoll/eventfd wiring here,
  * unlike rx_reader's ring); exits its main loop once cf_stop_notified(), but
  * always drains whatever is still in `in` first so a formatter stopped
  * after its upstream (rx-reader/pcap-replay) has already stopped loses

@@ -3,7 +3,7 @@
 
 /* WP-17 -- Splunk sink YAML configuration (libyaml).
  *
- * Same schema and env rules as WP-12 (docs/design/04-sink-splunk.md,
+ * Same schema and env rules as WP-12 (docs/splunk-output.md,
  * decision D6): endpoints and topology come from YAML; the HEC token comes
  * only from the environment variable named by splunk.hec_token_env. A
  * literal token key in YAML, or a splunk.hec_token_env value that does not

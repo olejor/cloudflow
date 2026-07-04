@@ -3,7 +3,7 @@
 
 /* WP-17 -- Redis consumer-group logic (hiredis).
  *
- * docs/design/04-sink-splunk.md, "Consumer behavior":
+ * docs/splunk-output.md, "Consumer behavior":
  *  - XGROUP CREATE <stream> <group> 0 MKSTREAM per stream (BUSYGROUP ignored);
  *  - reclaim stale pending entries first (XAUTOCLAIM min-idle 60s), then
  *    XREADGROUP COUNT read_count [BLOCK block_ms] ... > ;

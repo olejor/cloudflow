@@ -8,7 +8,7 @@
 
 /* DHCPv6 parser (WP-07). Pure computation: the UDP payload in -> a
  * heap-allocated Cloudflow__V1__DhcpV6PacketEvent tree out. No sockets, no
- * Redis, no threads. See docs/design/02-packet-and-parsing.md ("Shared
+ * Redis, no threads. See docs/dhcp-source.md ("Shared
  * parser conventions" and the WP-07 section) for the authoritative spec
  * this implements; mirrors the WP-06 DHCPv4 parser's API and construction
  * style (see cf_dhcpv4.h's header comment for the "built directly, not via
@@ -42,7 +42,7 @@
  * are walked into raw_options/decoded; the inner client/server message
  * carried in the Relay Message option (code 9) appears verbatim as that
  * option's raw bytes -- recursive inner parsing is a later enhancement
- * (see docs/design/02-packet-and-parsing.md's WP-07 section).
+ * (see docs/dhcp-source.md's WP-07 section).
  *
  * The `packet` field (PacketObservation) of the returned event is left
  * NULL -- the caller (the WP-10 event formatter) attaches it, since this

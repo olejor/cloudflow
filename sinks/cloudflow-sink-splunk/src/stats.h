@@ -3,7 +3,7 @@
 
 /* WP-17 -- counters + periodic structured stats line.
  *
- * Counter set from docs/design/04-sink-splunk.md. Emitted as one JSON object
+ * Counter set from docs/splunk-output.md. Emitted as one JSON object
  * per line via cf_log (Convention 7). The HEC token is NEVER a field here. */
 
 #include <stdatomic.h>

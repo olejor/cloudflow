@@ -2,7 +2,7 @@
 """Deterministic pcap fixture generator for the WP-06/WP-07 DHCP parsers.
 
 Builds the DHCPv4 and DHCPv6 fixture corpus listed in
-docs/design/02-packet-and-parsing.md ("Fixture corpus") into this directory:
+docs/dhcp-source.md ("Fixture corpus") into this directory:
 one single-packet classic-pcap file plus a human-readable <name>.expected.md
 per fixture. The v4_* builders (WP-06) and v6_* builders (WP-07) share the
 same BUILDERS dict / main() loop and general conventions (fixed timestamp,
@@ -26,7 +26,7 @@ acceptance criterion):
     because scapy recomputes/validates option lengths and would silently
     "fix" the deliberately-wrong length this fixture needs.
 
-Address policy (docs/design/02-packet-and-parsing.md): IPv4 addresses only
+Address policy (docs/dhcp-source.md): IPv4 addresses only
 from 192.0.2.0/24 and 198.51.100.0/24 (RFC 5737 documentation ranges), MACs
 only from 02:00:5e:xx:xx:xx (locally administered).
 
@@ -785,7 +785,7 @@ def build_v6_relay_forw():
     # Inner message: a standalone SOLICIT (independent xid/content from
     # v6_solicit -- this fixture is self-contained), carried verbatim as the
     # Relay Message option's (9) raw bytes; v0.1 does not recursively parse
-    # it (docs/design/02-packet-and-parsing.md's WP-07 section).
+    # it (docs/dhcp-source.md's WP-07 section).
     inner_xid = 0x303030
     inner_client_duid = duid_ll(V6_CLIENT_MAC)
     inner_oro = u16(23) + u16(24) + u16(31)

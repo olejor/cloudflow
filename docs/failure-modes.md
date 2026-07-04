@@ -107,3 +107,27 @@ downstream (Splunk) duplicate suppression can key on it. This is what makes
 Redis: the fixed `source_host`/`capture_interface` in its generated test
 config, combined with the fixtures' fixed capture timestamps, make every run
 produce identical `event_id`s.
+
+## DNS correlation-table failure modes (v0.2, designed)
+
+The DNS source (`docs/dns-source.md`) adds one more stateful component: a
+bounded pending-query table between the parser and the correlation stage.
+Its failure modes follow the same explicit-policy, no-silent-loss discipline
+as the rest of the pipeline, and are **designed, not yet implemented**:
+
+- **Table full.** A parsed query that cannot be inserted because the table
+  is at capacity is handled per the configured `dns.on_table_full` policy
+  (default `drop_newest`), counted by `dns_pending_drop_total`.
+- **Timeout eviction.** A query with no matching response within
+  `dns.query_timeout_ms` (default 5000 ms) is evicted and emitted as
+  `dns.query.unanswered`, counted by `dns_query_unanswered_total` — this is
+  a normal, expected outcome (loss, drop, or a real gap), not an error.
+- **Collision eviction.** A hash-table slot occupied by a still-live older
+  query, displaced by a new query before its own timeout (key collision or
+  fast port reuse), is evicted as `dns.query.unanswered` and separately
+  counted by `dns_pending_evicted_collision_total` so it can be
+  distinguished from an ordinary timeout.
+
+All three counters land in the same structured stats line as the DHCP
+source's counters. See `docs/dns-source.md`'s "Correlation stage" section
+for the full design.

@@ -23,7 +23,7 @@
  * pipeline (rx-reader | event-formatter | redis-producer) together, loads
  * config, installs signal handlers, runs the periodic stats loop on the main
  * thread, and shuts down in reverse pipeline order (reader first so the
- * queues drain), per docs/design/03-source-dhcp.md's WP-11 section. Lifecycle
+ * queues drain), per docs/dhcp-source.md's WP-11 section. Lifecycle
  * modeled on import/network_syslog_collector/src/main.c. */
 
 #ifndef CF_SOURCE_DHCP_VERSION

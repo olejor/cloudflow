@@ -11,7 +11,7 @@
  * string-and-bytes / ParserWarning-list helpers, and duplicating ~150 lines
  * of tiny static helpers keeps WP-07 from taking a compile-time dependency
  * on WP-06's internal (non-installed) header. See
- * docs/design/02-packet-and-parsing.md's "Shared parser conventions".
+ * docs/dhcp-source.md's "Shared parser conventions".
  */
 
 #include <stddef.h>

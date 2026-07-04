@@ -1,4 +1,4 @@
-"""cloudflow-decode-event CLI (WP-13, docs/design/05-tools-tests-ci.md).
+"""cloudflow-decode-event CLI (WP-13, docs/building-and-testing.md).
 
 Input modes (exactly one):
 
@@ -10,7 +10,7 @@ Input modes (exactly one):
 Output: pretty-printed JSON via the same
 ``google.protobuf.json_format.MessageToDict(preserving_proto_field_name=True)``
 rule WP-12 uses. ``--hec`` prints the full canonical HEC mapping
-(docs/design/04-sink-splunk.md) instead, by importing and calling the sink's
+(docs/splunk-output.md) instead, by importing and calling the sink's
 own ``transform.render_hec_line`` (see ``_bootstrap.py`` -- the mapping is
 reused, never duplicated).
 
@@ -138,7 +138,7 @@ def _read_input_bytes(args: argparse.Namespace) -> List[Tuple[str, bytes]]:
 def _default_splunk_config():
     """The SplunkConfig used for --hec: no operator config file exists for
     this debug tool, so this uses the mapping's defaults exactly
-    (docs/design/04-sink-splunk.md): no index, no sourcetype overrides
+    (docs/splunk-output.md): no index, no sourcetype overrides
     (falls back to ``cloudflow:<source_type>``), raw DHCP payload stripped.
     """
     from . import hec_mapping

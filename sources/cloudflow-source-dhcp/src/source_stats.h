@@ -2,7 +2,7 @@
 #define CF_SOURCE_DHCP_SOURCE_STATS_H
 
 /* cf_source_stats_t: the atomic counter/gauge struct shared by the whole
- * cloudflow-source-dhcp pipeline (D8, docs/design/00-overview.md). WP-11
+ * cloudflow-source-dhcp pipeline (D8, docs/architecture.md). WP-11
  * owns allocating/embedding this struct and emitting the periodic
  * structured stats log line from it; WP-08 (this WP) and WP-10 each only
  * touch their own fields. It is defined here, under WP-08, because
@@ -16,7 +16,7 @@
  * CF_ATOMIC_READ_AND_ZERO depending on config's stats.reset_on_report.
  *
  * Metric names match AGENTS.md's "Useful CloudFlow service metrics" list
- * and the counters named explicitly in docs/design/03-source-dhcp.md's
+ * and the counters named explicitly in docs/dhcp-source.md's
  * WP-08/WP-10 sections. */
 
 #include <stdatomic.h>

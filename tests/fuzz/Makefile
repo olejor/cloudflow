@@ -4,7 +4,7 @@
 # deliberately does NOT include mk/toolchain.mk (no -Werror, no hardening
 # flags that fight afl-gcc/afl-clang-fast instrumentation) and is NOT
 # wired into the top-level Makefile's SUBDIRS or `make test`. Per
-# docs/design/02-packet-and-parsing.md (WP-05/WP-06), the harnesses only
+# docs/dhcp-source.md (WP-05/WP-06), the harnesses only
 # need to exist and build; running them under AFL is a manual/local step
 # (see README.md in this directory).
 

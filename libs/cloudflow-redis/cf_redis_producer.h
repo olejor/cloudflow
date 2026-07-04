@@ -6,7 +6,7 @@
  * Destination-agnostic: drains cf_event_item_t from a cf_queue_t and
  * delivers them to Redis Streams via pipelined XADD, with reconnect/backoff
  * and explicit loss accounting. Nothing DHCP-specific lives here -- see
- * docs/design/03-source-dhcp.md (WP-09 section) for the full behavior spec
+ * docs/dhcp-source.md (WP-09 section) for the full behavior spec
  * this implements, and docs/redis-streams.md for the entry format contract.
  *
  * Structure lifted from import/network_syslog_collector/src/redis.c (the
@@ -27,7 +27,7 @@
 #include "cf_queue.h"
 #include "cloudflow.h"
 
-/* Pipeline sizing (see docs/design/03-source-dhcp.md WP-09): the producer
+/* Pipeline sizing (see docs/dhcp-source.md WP-09): the producer
  * keeps a fixed array of up to pipeline_max in-flight cf_event_item_t
  * copies (no per-event heap allocation in steady state beyond what hiredis
  * itself does for its output/input buffers). cf_event_item_t is
@@ -40,8 +40,8 @@
 #define CF_REDIS_PRODUCER_DEFAULT_PIPELINE_MAX 512u
 #define CF_REDIS_PRODUCER_DEFAULT_FLUSH_INTERVAL_MS 100u
 
-/* Atomic counters, per docs/design/03-source-dhcp.md's WP-09 "Counters"
- * bullet and D8 (docs/design/00-overview.md). Built from the CF_ATOMIC_*
+/* Atomic counters, per docs/dhcp-source.md's WP-09 "Counters"
+ * bullet and D8 (docs/architecture.md). Built from the CF_ATOMIC_*
  * primitives in cf_stats.h; read with CF_ATOMIC_READ() (or
  * CF_ATOMIC_READ_AND_ZERO() if a caller wants reset-on-report semantics)
  * from a stats-reporting thread.

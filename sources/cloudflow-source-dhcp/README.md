@@ -118,7 +118,7 @@ CAP_SYS_NICE`, `NoNewPrivileges=yes`, and `Restart=on-failure`.
 ## WP-08: rx-reader capture module + pcap replay
 
 `src/rx_reader.{h,c}` and `src/pcap_replay.{h,c}` implement the first stage
-of the pipeline (see `docs/design/03-source-dhcp.md`'s WP-08 section for the
+of the pipeline (see `docs/dhcp-source.md`'s WP-08 section for the
 full spec). Both feed `cf_packet_item_t`s (raw frame bytes plus the ring/pcap
 timestamp -- no parsing, per D10) into a `cf_queue_t`, applying the D9
 `on_full` backpressure policy (`src/queue_policy.h`) on every push. Supporting

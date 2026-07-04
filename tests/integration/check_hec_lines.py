@@ -8,7 +8,7 @@ fixture corpus, checks:
   - the line count equals the expected total (sum of both wire streams'
     expected counts from tests/integration/expected_counts.tsv);
   - each line parses as JSON and has the canonical HEC envelope shape
-    (docs/design/04-sink-splunk.md "Canonical HEC mapping"): `time` a number,
+    (docs/splunk-output.md "Canonical HEC mapping"): `time` a number,
     `host`/`source`/`sourcetype` non-empty strings, `event` an object;
   - `event.envelope.source_type` is dhcpv4 or dhcpv6 and the matching oneof
     payload (`dhcpv4_packet`/`dhcpv6_packet`) is present;

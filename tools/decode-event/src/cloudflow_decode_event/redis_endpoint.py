@@ -1,7 +1,7 @@
 """Redis endpoint resolution.
 
 Deliberately duplicated in tools/stream-inspect/ rather than factored into a
-shared package (docs/design/05-tools-tests-ci.md, WP-13: "a tiny duplicated
+shared package (docs/building-and-testing.md, WP-13: "a tiny duplicated
 helper is acceptable and preferable to a new shared package").
 
 Precedence, per the WP-13 spec:

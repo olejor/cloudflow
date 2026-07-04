@@ -1,6 +1,6 @@
 """Builds representative CloudFlowEvent protos directly with the Python
 bindings and emits their packed protobuf bytes as fixture inputs for the C
-sink's golden-compatibility tests (WP-17, docs/design/06-sink-splunk-c.md).
+sink's golden-compatibility tests (WP-17, docs/splunk-output.md).
 
 The WP-12 Python transform that these events used to be fed through has been
 removed in the C rewrite; this module survives as the *golden generator* --

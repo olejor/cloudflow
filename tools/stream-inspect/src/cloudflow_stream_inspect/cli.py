@@ -1,4 +1,4 @@
-"""cloudflow-stream-inspect CLI (WP-13, docs/design/05-tools-tests-ci.md).
+"""cloudflow-stream-inspect CLI (WP-13, docs/building-and-testing.md).
 
 Default report, for the configured streams (both wire streams + the
 dead-letter stream unless ``--stream`` overrides the list): ``XINFO STREAM``

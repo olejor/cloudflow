@@ -1,6 +1,6 @@
 /* WP-17 HEC client suite against a python http stub (tests/hec_stub.py).
  *
- * docs/design/04-sink-splunk.md acceptance criteria:
+ * docs/splunk-output.md acceptance criteria:
  *  - 5xx then 2xx -> retried, delivered once;
  *  - 400 on a 3-event batch with one poison -> 2 delivered, 1 dead-lettered
  *    (reason=hec_rejected), all reported for XACK;

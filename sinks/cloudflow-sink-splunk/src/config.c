@@ -7,7 +7,7 @@
 
 #include <yaml.h>
 
-/* Defaults mirror configs/examples/splunk-sink.yaml (docs/design/04-sink-splunk.md). */
+/* Defaults mirror configs/examples/splunk-sink.yaml (docs/splunk-output.md). */
 #define DEFAULT_CONSUMER_GROUP "sink-splunk"
 #define DEFAULT_READ_COUNT 100
 #define DEFAULT_BLOCK_MS 1000

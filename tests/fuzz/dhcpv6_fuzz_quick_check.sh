@@ -2,7 +2,7 @@
 # tests/fuzz/dhcpv6_fuzz_quick_check.sh
 #
 # WP-07 fallback for "10-minute local AFL run" when AFL isn't installed
-# (docs/design/02-packet-and-parsing.md's WP-06 acceptance criteria, which
+# (docs/dhcp-source.md's WP-06 acceptance criteria, which
 # WP-07 mirrors, say to document what was done either way). Builds
 # dhcpv6_fuzz once with ASan+UBSan (more likely to turn a bad read into a
 # hard failure than a silent pass), extracts the raw DHCPv6 payload from

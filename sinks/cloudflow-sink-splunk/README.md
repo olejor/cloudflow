@@ -1,12 +1,10 @@
 # cloudflow-sink-splunk
 
-Redis Streams to Splunk HEC sink for CloudFlow events. **C rewrite (WP-17,
-`docs/design/06-sink-splunk-c.md`)** of the original Python sink (WP-12), per
-the revised decision D1. The **canonical CloudFlowEvent → Splunk HEC JSON
-mapping** and the consumer/retry/dead-letter behavior are unchanged
-contracts (`docs/design/04-sink-splunk.md`); the Python-era golden files in
-`tests/golden/` are the cross-language compatibility tests the C transform is
-proven against.
+Redis Streams to Splunk HEC sink for CloudFlow events. C11 (decision D1,
+`docs/architecture.md`). The **canonical CloudFlowEvent → Splunk HEC JSON
+mapping** and the consumer/retry/dead-letter behavior are the contract
+documented in `docs/splunk-output.md`; the golden files in `tests/golden/`
+are what the C transform is proven against.
 
 Pipeline:
 

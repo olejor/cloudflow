@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Deterministic event identity (D5 in docs/design/00-overview.md): the
+/* Deterministic event identity (D5 in docs/architecture.md): the
  * lowercase-hex, 128-bit (16 byte) truncation of a SHA-256 digest over
  *
  *   (source_host, capture_interface, observed_time_unix_nano, frame)

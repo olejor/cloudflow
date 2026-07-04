@@ -5,7 +5,7 @@
  *
  * Stream cloudflow:v1:deadletter:sink-splunk, XADD MAXLEN ~ 100000, entry
  * fields reason/origin_stream/origin_id/error/payload
- * (docs/design/04-sink-splunk.md, "Dead-letter stream"). The XADD must
+ * (docs/splunk-output.md, "Dead-letter stream"). The XADD must
  * succeed before the caller XACKs the origin entry: cf_deadletter_write
  * returns 0 only on a confirmed write, and the caller must not ack on
  * failure (the origin stays pending -> retried; at-least-once, never silent
