@@ -7,11 +7,11 @@
 #include <curl/curl.h>
 
 #include "cf_log.h"
+#include "cf_sink_delivery.h"
+#include "cf_sink_httpdeliver.h"
 #include "cf_stats.h"
 #include "cf_time.h"
 
-#define CF_HEC_BACKOFF_INITIAL_S 1.0
-#define CF_HEC_BACKOFF_MAX_S 30.0
 #define CF_HEC_BODY_PREFIX_MAX 200
 
 struct cf_hec_client {
@@ -150,151 +150,70 @@ void cf_hec_client_set_sleep_fn(cf_hec_client_t *c, void (*sleep_fn)(double, voi
     c->sleep_ctx = ctx;
 }
 
-/* Concatenate items[lo..lo+count) lines with '\n' into a malloc'd buffer. */
-static char *build_body(const cf_batch_item_t *items, size_t lo, size_t count, size_t *out_len)
+/* The HEC post-once primitive (cf_post_once_fn): builds nothing itself -- it
+ * POSTs the already-concatenated `body` once and returns the HTTP status, or
+ * <=0 for a transport error. The shared retry/bisection helper
+ * (cf_sink_httpdeliver) wraps this with the backoff + poison-bisection policy.
+ * Splunk-specific: the URL, the "Authorization: Splunk <token>" header and the
+ * Content-Type are already set on the reused keep-alive handle. The token is
+ * never logged; on a transport error the curl error string is logged (never
+ * the token) and copied into errbuf. */
+static long hec_post_once(void *ctx, const uint8_t *body, size_t len, char *errbuf, size_t errcap)
 {
-    size_t total = 0, i, o = 0;
-    char *body;
-
-    for (i = 0; i < count; i++)
-        total += strlen(items[lo + i].line) + 1;
-    if (total == 0)
-        total = 1;
-    body = malloc(total);
-    if (!body)
-        return NULL;
-    for (i = 0; i < count; i++) {
-        size_t len = strlen(items[lo + i].line);
-        if (i > 0)
-            body[o++] = '\n';
-        memcpy(body + o, items[lo + i].line, len);
-        o += len;
-    }
-    *out_len = o;
-    return body;
-}
-
-/* One POST attempt. Returns: 0 on 2xx; 1 on retryable (net/429/5xx); 2 on
- * non-retryable 4xx (writes body prefix + status). */
-static int post_once(cf_hec_client_t *c, const char *body, size_t body_len, long *status_out,
-                     char *body_prefix, size_t prefix_cap)
-{
+    cf_hec_client_t *c = ctx;
     resp_body_t rb;
     CURLcode res;
     long status = 0;
-    int64_t t0, t1;
 
     rb.len = 0;
     rb.buf[0] = '\0';
 
     curl_easy_setopt(c->curl, CURLOPT_POSTFIELDS, body);
-    curl_easy_setopt(c->curl, CURLOPT_POSTFIELDSIZE, (long)body_len);
+    curl_easy_setopt(c->curl, CURLOPT_POSTFIELDSIZE, (long)len);
     curl_easy_setopt(c->curl, CURLOPT_WRITEDATA, &rb);
 
-    t0 = cf_now_mono_nano();
     res = curl_easy_perform(c->curl);
-    t1 = cf_now_mono_nano();
 
     if (res != CURLE_OK) {
         cf_log(CF_LOG_WARN, "HEC request failed, retrying", "error", curl_easy_strerror(res),
                NULL);
-        return 1;
+        if (errbuf && errcap)
+            snprintf(errbuf, errcap, "%s", curl_easy_strerror(res));
+        return -1; /* transport error -> retryable */
     }
 
     curl_easy_getinfo(c->curl, CURLINFO_RESPONSE_CODE, &status);
-    *status_out = status;
-
-    if (status >= 200 && status < 300) {
-        CF_ATOMIC_STORE(c->stats->splunk_delivery_latency_ms_last,
-                        (unsigned long)((t1 - t0) / 1000000LL));
-        return 0;
-    }
-    if (status == 429 || status >= 500)
-        return 1;
-
-    if (body_prefix && prefix_cap)
-        snprintf(body_prefix, prefix_cap, "%s", rb.buf);
-    return 2;
-}
-
-/* Recursively delivers items[lo..lo+count). */
-static void send_range(cf_hec_client_t *c, const cf_batch_item_t *items, size_t lo, size_t count,
-                       double backoff, uint8_t *delivered, uint8_t *poison, char **poison_errs)
-{
-    char body_prefix[CF_HEC_BODY_PREFIX_MAX + 1];
-    size_t body_len = 0;
-    char *body;
-    long status = 0;
-    size_t mid, i;
-    int rc;
-
-    if (count == 0)
-        return;
-
-    for (;;) {
-        body = build_body(items, lo, count, &body_len);
-        if (!body) {
-            /* Out of memory building the body: treat as retryable. */
-            CF_ATOMIC_INC(c->stats->splunk_retry_total);
-            c->sleep_fn(backoff, c->sleep_ctx);
-            backoff = backoff * 2 > CF_HEC_BACKOFF_MAX_S ? CF_HEC_BACKOFF_MAX_S : backoff * 2;
-            continue;
-        }
-        body_prefix[0] = '\0';
-        rc = post_once(c, body, body_len, &status, body_prefix, sizeof(body_prefix));
-        free(body);
-
-        if (rc == 0) {
-            CF_ATOMIC_ADD(c->stats->splunk_delivery_total, (unsigned long)count);
-            CF_ATOMIC_STORE(c->stats->splunk_batch_size_last, (unsigned long)count);
-            for (i = 0; i < count; i++)
-                delivered[lo + i] = 1;
-            return;
-        }
-
-        if (rc == 1) {
-            CF_ATOMIC_INC(c->stats->splunk_retry_total);
-            CF_ATOMIC_INC(c->stats->splunk_delivery_errors_total);
-            c->sleep_fn(backoff, c->sleep_ctx);
-            backoff = backoff * 2 > CF_HEC_BACKOFF_MAX_S ? CF_HEC_BACKOFF_MAX_S : backoff * 2;
-            continue;
-        }
-
-        break; /* rc == 2: non-retryable 4xx -> bisect */
-    }
-
-    CF_ATOMIC_INC(c->stats->splunk_delivery_errors_total);
-
-    if (count == 1) {
-        char *err = malloc(64 + CF_HEC_BODY_PREFIX_MAX);
-        if (err)
-            snprintf(err, 64 + CF_HEC_BODY_PREFIX_MAX, "HTTP %ld: %s", status, body_prefix);
-        poison[lo] = 1;
-        poison_errs[lo] = err;
-        cf_log(CF_LOG_WARN, "HEC rejected single event, dead-lettering", "entry_id",
-               items[lo].entry_id, NULL);
-        return;
-    }
-
-    cf_log(CF_LOG_WARN, "HEC rejected batch with non-retryable status, bisecting", NULL);
-    mid = count / 2;
-    send_range(c, items, lo, mid, backoff, delivered, poison, poison_errs);
-    send_range(c, items, lo + mid, count - mid, backoff, delivered, poison, poison_errs);
+    if (errbuf && errcap)
+        snprintf(errbuf, errcap, "%s", rb.buf); /* response-body prefix for poison msg */
+    return status;
 }
 
 int cf_hec_client_send_batch(cf_hec_client_t *c, const cf_batch_item_t *items, size_t n,
                              uint8_t *delivered, uint8_t *poison, char **poison_errs)
 {
-    size_t i;
+    return cf_sink_http_deliver_batched(hec_post_once, c, items, n, delivered, poison, poison_errs,
+                                        c->sleep_fn, c->sleep_ctx, c->stats);
+}
 
-    for (i = 0; i < n; i++) {
-        delivered[i] = 0;
-        poison[i] = 0;
-        poison_errs[i] = NULL;
-    }
-    if (n == 0)
-        return 0;
+/* ---- delivery interface adapter ---------------------------------------- */
 
-    send_range(c, items, 0, n, CF_HEC_BACKOFF_INITIAL_S, delivered, poison, poison_errs);
-    return 0;
+static int hec_delivery_send_batch(void *ctx, const cf_batch_item_t *items, size_t n,
+                                   uint8_t *delivered, uint8_t *poison, char **poison_errs)
+{
+    return cf_hec_client_send_batch((cf_hec_client_t *)ctx, items, n, delivered, poison,
+                                    poison_errs);
+}
+
+static void hec_delivery_free(void *ctx)
+{
+    cf_hec_client_free((cf_hec_client_t *)ctx);
+}
+
+struct cf_sink_delivery cf_hec_client_as_delivery(cf_hec_client_t *c)
+{
+    cf_sink_delivery_t d;
+    d.ctx = c;
+    d.send_batch = hec_delivery_send_batch;
+    d.free = hec_delivery_free;
+    return d;
 }

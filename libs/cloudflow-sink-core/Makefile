@@ -49,7 +49,7 @@ SAN_LDFLAGS :=
 BUILD_DIR := build
 
 SOURCES := cf_sink_config.c cf_sink_stats.c cf_sink_deadletter.c cf_sink_hec.c \
-           cf_sink_consumer.c cf_sink_run.c
+           cf_sink_httpdeliver.c cf_sink_consumer.c cf_sink_run.c
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(SOURCES:.c=.o))
 
 LIB := $(BUILD_DIR)/libcloudflow-sink-core.a

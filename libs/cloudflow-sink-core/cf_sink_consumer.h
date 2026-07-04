@@ -24,7 +24,7 @@
 #include <hiredis/hiredis.h>
 
 #include "cf_sink_config.h"
-#include "cf_sink_hec.h"
+#include "cf_sink_delivery.h" /* cf_sink_delivery_t, cf_batch_item_t (via cf_sink_hec.h) */
 #include "cf_sink_stats.h"
 
 #include "cloudflow/v1/envelope.pb-c.h"
@@ -67,9 +67,9 @@ typedef struct {
     cf_sink_transform_fn transform;
     void *transform_user;
 
-    int stdout_mode;       /* 1 = print lines; 0 = POST via `hec` */
-    FILE *stdout_stream;   /* used in stdout mode; default stdout */
-    cf_hec_client_t *hec;  /* used in POST mode */
+    int stdout_mode;     /* 1 = print lines; 0 = deliver via `delivery` */
+    FILE *stdout_stream; /* used in stdout mode; default stdout */
+    const cf_sink_delivery_t *delivery; /* used in delivery (non-stdout) mode */
 
     long long min_idle_ms; /* XAUTOCLAIM min-idle; default 60000 */
 
@@ -90,7 +90,7 @@ int cf_consumer_init(cf_consumer_t *c, redisContext *ctx, const cf_sink_config_t
 void cf_consumer_set_transform(cf_consumer_t *c, cf_sink_transform_fn fn, void *user);
 
 void cf_consumer_set_stdout(cf_consumer_t *c, FILE *stream);
-void cf_consumer_set_hec(cf_consumer_t *c, cf_hec_client_t *hec);
+void cf_consumer_set_delivery(cf_consumer_t *c, const cf_sink_delivery_t *delivery);
 void cf_consumer_set_min_idle_ms(cf_consumer_t *c, long long ms);
 
 int cf_consumer_ensure_groups(cf_consumer_t *c);
