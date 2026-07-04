@@ -1,17 +1,16 @@
 # CloudFlow DNS source design (v0.2)
 
-This is the design for the second CloudFlow source: wire-observed DNS
-telemetry. It follows the same shape as the DHCP source
+This is the design and reference for the second CloudFlow source:
+wire-observed DNS telemetry. It follows the same shape as the DHCP source
 (`docs/dhcp-source.md`) and reuses everything protocol-agnostic — the core
-library, the codec, the packet decap library, the Redis producer, and the
-Splunk sink. Read `docs/architecture.md` first for the project conventions
-and decision numbering (`D1`..`D11`); this document adds DNS-specific
-decisions (prefixed `DNS-Dn`) and a work-package roadmap (`WP-DNSnn`) for the
-still-unimplemented parts.
+library, the codec, the packet decap library, the shared `cloudflow-capture`
+library, the Redis producer, and the Splunk sink. Read `docs/architecture.md`
+first for the project conventions and decision numbering (`D1`..`D11`); this
+document adds DNS-specific decisions (prefixed `DNS-Dn`) and the work-package
+roadmap (`WP-DNSnn`) it was built along.
 
-> **Scope note.** `AGENTS.md` lists a DNS source under "Current non-goals …
-> unless a task explicitly requests it." This document is that explicit
-> request. It does not change the v0.1 deliverable; it defines v0.2.
+> **Scope note.** The DNS source is the v0.2 deliverable, built as an explicit
+> follow-on to v0.1. It does not change the v0.1 deliverable; it defines v0.2.
 
 ## Why wire capture (and why dstore stays)
 
@@ -121,7 +120,7 @@ Numbered `DNS-D1…`, continuing the spirit of `docs/architecture.md`'s
 
 ## Event model (`proto/cloudflow/v1/dns.proto`)
 
-Sketch, to be finalized in WP-DNS01. Mirrors the DHCP proto conventions:
+The committed `dns.proto` mirrors the DHCP proto conventions:
 preserve wire facts and a decoded view; reserve field numbers; enums for
 well-known values. Wraps into the existing `CloudFlowEvent` oneof.
 

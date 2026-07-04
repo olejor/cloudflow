@@ -1,7 +1,7 @@
 # Architecture
 
 CloudFlow turns wire-observed packets into searchable Splunk events. The
-first source is DHCP; a wire-observed DNS source is designed for v0.2.
+first source is DHCP; a wire-observed DNS source ships in v0.2.
 
 ```text
 sources -> Redis Streams -> cloudflow-sink-splunk -> Splunk HEC
@@ -14,14 +14,14 @@ protocol-specific payload), encoded as protobuf and carried on Redis Streams.
 
 The other topic docs go deeper on each area: `docs/event-model.md` (envelope
 and payload contract), `docs/redis-streams.md` (transport), `docs/dhcp-source.md`
-(the implemented DHCP source), `docs/dns-source.md` (the designed DNS source),
+(the DHCP source), `docs/dns-source.md` (the DNS source),
 `docs/splunk-output.md` (the sink), `docs/failure-modes.md` (loss/retry
 policy), and `docs/building-and-testing.md` (build, tests, CI). What is
-implemented today (v0.1) versus designed (v0.2) is called out below.
+implemented today versus designed is called out below.
 
 ## Shared libraries
 
-Every source and the sink are built from four small libraries under `libs/`:
+Every source and the sink are built from five small libraries under `libs/`:
 
 - **`cloudflow-core`** — time helpers, structured logging, the stop-flag
   shutdown mechanism, deterministic event IDs, atomic stats-counter macros,
@@ -30,6 +30,9 @@ Every source and the sink are built from four small libraries under `libs/`:
   `proto/cloudflow/v1/*.proto`, committed so builds never require `protoc`.
 - **`cloudflow-packet`** — protocol-agnostic Ethernet/VLAN/IPv4/IPv6/UDP
   decapsulation, plus the DHCPv4 and DHCPv6 parsers.
+- **`cloudflow-capture`** — the shared capture layer used by both the DHCP
+  and DNS sources: the TPACKET_V3 rx-ring reader, pcap replay, the queue
+  backpressure policy, and the cBPF filter assembler.
 - **`cloudflow-redis`** — the `hiredis`-based pipelined `XADD` producer used
   by every source to write to Redis Streams.
 
@@ -51,18 +54,20 @@ rx-reader -> event-formatter -> redis-producer
 
 The formatter is stateless: one packet in, one event out.
 
-### DNS source (v0.2, designed — `docs/dns-source.md`)
+### DNS source (v0.2, implemented) — `cloudflow-source-dns`
 
 ```text
 rx-reader -> parse + correlate -> redis-producer
 ```
 
-DNS is the same spine, plus a stateful **correlation stage**: it matches
-queries to responses in a bounded pending-query table to produce
-`dns.transaction.observed` events carrying per-leg RTT and a leg role
-(client-facing / backend / recursion-upstream). It writes to
-`cloudflow:v1:wire:dns`. This is the one deliberate departure from the
-stateless-source model; it is bounded and loss-accounted like every queue.
+DNS is the same spine, plus a stateful **correlation stage**: it captures
+udp/53 and tcp/53 and matches queries to responses in a bounded pending-query
+table to produce `dns.transaction.observed` events carrying per-leg RTT and a
+leg role (client-facing / backend / recursion-upstream), alongside
+`dns.query.unanswered` and `dns.response.unmatched` for the legs that do not
+correlate. It writes to `cloudflow:v1:wire:dns`. This is the one deliberate
+departure from the stateless-source model; it is bounded and loss-accounted
+like every queue.
 
 ## Transport
 
@@ -180,16 +185,23 @@ cloudflow/
 │       └── v1/
 │           ├── common.proto
 │           ├── envelope.proto
-│           └── dhcp.proto
+│           ├── dhcp.proto
+│           └── dns.proto
 │
 ├── libs/
 │   ├── cloudflow-core/
 │   ├── cloudflow-codec/
 │   ├── cloudflow-packet/
+│   ├── cloudflow-capture/
 │   └── cloudflow-redis/
 │
 ├── sources/
-│   └── cloudflow-source-dhcp/
+│   ├── cloudflow-source-dhcp/
+│   │   ├── src/
+│   │   ├── tests/
+│   │   ├── systemd/
+│   │   └── README.md
+│   └── cloudflow-source-dns/
 │       ├── src/
 │       ├── tests/
 │       ├── systemd/

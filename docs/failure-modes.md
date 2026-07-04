@@ -108,12 +108,12 @@ Redis: the fixed `source_host`/`capture_interface` in its generated test
 config, combined with the fixtures' fixed capture timestamps, make every run
 produce identical `event_id`s.
 
-## DNS correlation-table failure modes (v0.2, designed)
+## DNS correlation-table failure modes (v0.2, implemented)
 
 The DNS source (`docs/dns-source.md`) adds one more stateful component: a
 bounded pending-query table between the parser and the correlation stage.
 Its failure modes follow the same explicit-policy, no-silent-loss discipline
-as the rest of the pipeline, and are **designed, not yet implemented**:
+as the rest of the pipeline, with bounded-loss counters on every eviction:
 
 - **Table full.** A parsed query that cannot be inserted because the table
   is at capacity is handled per the configured `dns.on_table_full` policy
