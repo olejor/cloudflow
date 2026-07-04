@@ -47,8 +47,7 @@ payload; the sink emits one such object per measurement, newline-delimited:
     "cf_service_role": "authoritative",
     "cf_rcode": "NOERROR",
     "cf_qtype": "A",
-    "cf_server_ip": "192.0.2.53",
-    "source_host": "dns01"
+    "cf_server_ip": "192.0.2.53"
   }
 }
 ```

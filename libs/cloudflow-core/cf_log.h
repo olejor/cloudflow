@@ -28,9 +28,10 @@
  *   cf_log(CF_LOG_INFO, "packets observed",
  *          "count", cf_log_u64(buf, sizeof(buf), count), NULL);
  *
- * If a line would not fit in the internal buffer it is truncated (with a
- * trailing marker) rather than allocating -- logging must never be a source
- * of unbounded memory growth on the hot path.
+ * If a line would not fit in the internal buffer, whole trailing key/value
+ * fields are dropped silently (never a partial field, so the output stays
+ * valid JSON) rather than allocating -- logging must never be a source of
+ * unbounded memory growth on the hot path.
  */
 
 typedef enum {

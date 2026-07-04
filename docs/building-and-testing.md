@@ -19,20 +19,24 @@ warning/hardening baseline. Libraries build as static archives
 ## The top-level `Makefile`
 
 `SUBDIRS` lists every library and app directory
-(`libs/cloudflow-{core,codec,packet,redis}`,
-`sources/cloudflow-source-dhcp`, `sinks/cloudflow-sink-splunk`,
-`tests/unit`), each with its own Makefile built on `mk/toolchain.mk`.
+(`libs/cloudflow-{core,codec,packet,redis,capture,sink-core}`,
+`sources/cloudflow-source-{dhcp,dns}`,
+`sinks/cloudflow-sink-{splunk,splunk-metrics,clickhouse}`, `tests/unit`), each
+with its own Makefile built on `mk/toolchain.mk`.
 
 ```text
 make build        walks SUBDIRS and builds each with `make all`
 make clean        walks SUBDIRS and cleans each
 make proto        runs scripts/generate-protobuf.sh
 make test         builds/runs tests/unit, cloudflow-redis's live-Redis test,
-                   the DHCP source's tests, the Splunk sink's tests, then
+                   the cloudflow-capture and cloudflow-sink-core suites, the
+                   DHCP and DNS sources' tests, the three sinks' tests
+                   (splunk, splunk-metrics, clickhouse), then
                    scripts/run-integration-tests.sh
 make test-tsan     tests/unit's cf_queue stress test under -fsanitize=thread
-make test-asan     ASan/UBSan build of tests/unit, the source's formatter
-                   suite, and the sink's suites
+make test-asan     ASan/UBSan build of tests/unit, cloudflow-capture,
+                   cloudflow-sink-core, both sources' suites, and the three
+                   sinks' suites
 make bench         scripts/benchmark-xadd.sh
 make local-redis   scripts/run-local-redis.sh (standalone redis:7 container)
 ```
@@ -69,21 +73,39 @@ exactly that on every PR (see below).
   `cf_dhcpv6_test.c`, `cf_codec_test.c`); each library/app also carries its
   own suite next to its source (e.g.
   `sources/cloudflow-source-dhcp/tests/rx_reader_test.c`,
-  `formatter_test.c`; `sinks/cloudflow-sink-splunk/tests/test_consumer.c`,
-  `test_hec.c`, `test_transform_golden.c`). Parser and codec suites are
-  fixture-driven against `tests/fixtures/dhcp/` (see `docs/dhcp-source.md`).
+  `formatter_test.c`; `sources/cloudflow-source-dns/tests/correlation_test.c`,
+  `leg_classify_test.c`; `sinks/cloudflow-sink-splunk/tests/test_consumer.c`,
+  `test_hec.c`, `test_transform_golden.c`;
+  `sinks/cloudflow-sink-splunk-metrics/tests/test_metrics_golden.c`,
+  `sinks/cloudflow-sink-clickhouse/tests/test_row_golden.c`). Parser and codec
+  suites are fixture-driven against `tests/fixtures/dhcp/` and
+  `tests/fixtures/dns/` (see `docs/dhcp-source.md`, `docs/dns-source.md`).
   `libs/cloudflow-redis/tests/cf_redis_producer_test.c` spawns a private
   `redis-server` and skips cleanly if the binary is absent.
-- **Integration script.** `scripts/run-integration-tests.sh` starts Redis (or
-  reuses `CF_TEST_REDIS`), replays every DHCP fixture through the real
-  `cloudflow-source-dhcp --replay` binary, asserts per-stream `XLEN` against
-  a committed manifest, runs the sink with `--once --stdout` and diffs
-  against golden JSON (ignoring the one non-deterministic envelope field,
-  `ingest_time_unix_nano`), asserts zero pending entries and an empty
-  dead-letter stream on a clean run, and separately proves the poison path:
-  a hand-`XADD`ed garbage payload is run through the sink and must land in
-  the dead-letter stream with `reason=decode_error` (see
-  `docs/failure-modes.md`).
+- **Integration script.** `scripts/run-integration-tests.sh` is a full
+  multi-sink end-to-end run. It starts Redis (or reuses `CF_TEST_REDIS`) and:
+  - replays every DHCP fixture through the real `cloudflow-source-dhcp
+    --replay` binary and asserts per-stream `XLEN` against a committed
+    manifest;
+  - runs `cloudflow-sink-splunk --once --stdout` over the DHCP streams,
+    validates the HEC lines, and asserts zero pending entries and an empty
+    dead-letter stream on a clean run;
+  - proves the poison path: a hand-`XADD`ed garbage payload run through the
+    sink must land in the dead-letter stream with `reason=decode_error` (see
+    `docs/failure-modes.md`);
+  - replays a correlated DNS query/response fixture pair through
+    `cloudflow-source-dns --replay` so the correlation stage emits exactly one
+    `dns.transaction.observed` on `cloudflow:v1:wire:dns`, then runs the Splunk
+    sink over it and checks the canonical `cloudflow:dns` HEC event;
+  - runs the two other sinks as independent consumer groups over the same DNS
+    stream — `cloudflow-sink-splunk-metrics` (`sink-splunk-metrics`), asserting
+    a `dns.transactions_total`/`dns.rtt_seconds` metric point with its
+    dimensions, and `cloudflow-sink-clickhouse` (`sink-clickhouse`) in
+    `--stdout` mode, asserting the `JSONEachRow` row carries the expected
+    analytical keys — each with zero pending and no dead-letter entries after
+    ack. (CI has no ClickHouse server, so the ClickHouse leg prints rows
+    instead of running a real `INSERT`; a live `INSERT` is a documented manual
+    step in the sink README.)
 - **Fuzzing.** `tests/fuzz/` holds AFL-style harnesses for the decap layer
   (`decap_fuzz.c`) and both DHCP parsers (`dhcpv4_fuzz.c`,
   `dhcpv6_fuzz.c`), plus quick-check shell scripts. These build but are not
@@ -92,8 +114,8 @@ exactly that on every PR (see below).
 - **Sanitizers.** `make test-tsan` runs the `cf_queue` SPSC stress test
   under ThreadSanitizer — it is the only concurrency primitive in the
   source pipeline, so it gets this treatment specifically. `make test-asan`
-  runs the unit suites, the source's formatter suite, and the sink's
-  suites (golden + consumer tests) under ASan/UBSan; parser and
+  runs the unit suites, `cloudflow-capture`, `cloudflow-sink-core`, both
+  sources' suites, and the three sinks' suites under ASan/UBSan; parser and
   fuzz-adjacent code is expected to stay sanitizer-clean.
 
 ## CI (`.github/workflows/ci.yml`)

@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import json
 
-from cloudflow.v1 import common_pb2, dhcp_pb2
+from cloudflow.v1 import common_pb2, dhcp_pb2, dns_pb2
 from cloudflow.v1.envelope_pb2 import CloudFlowEvent
 from google.protobuf import json_format
 
 from cloudflow_decode_event import cli, hec_mapping
 
 STREAM_NAME = "cloudflow:v1:wire:dhcpv4"
+DNS_STREAM_NAME = "cloudflow:v1:wire:dns"
 GROUP = "sink-splunk"
 
 
@@ -107,6 +108,29 @@ def _event_file(tmp_path):
     return path, event
 
 
+def _build_dns_event(service_role: str = "") -> CloudFlowEvent:
+    """A minimal DNS transaction event; ``service_role`` drives sourcetype
+    routing (mirrors sinks/cloudflow-sink-splunk/src/transform.c: WP-DNS11b)."""
+    envelope = common_pb2.EventEnvelope(
+        event_id="ab12cd34ef56ab12cd34ef56ab12cd34",
+        schema_version=1,
+        source_type="dns",
+        source_host="dns-source-01.example.net",
+        observed_time_unix_nano=1_730_000_002_000_000_000,
+        event_type="dns.transaction.observed",
+        payload_schema="cloudflow.v1.DnsTransactionEvent",
+        stream_name=DNS_STREAM_NAME,
+    )
+    txn = dns_pb2.DnsTransactionEvent(
+        client_ip="192.0.2.100",
+        server_ip="192.0.2.53",
+        transaction_key="4660/www.example.com/A",
+    )
+    if service_role:
+        txn.service_role = service_role
+    return CloudFlowEvent(envelope=envelope, dns_transaction=txn)
+
+
 # -- --file: JSON output matches MessageToDict --------------------------------
 
 
@@ -146,6 +170,36 @@ def test_file_hec_matches_mapping_and_envelope(tmp_path, capsys):
     assert set(hec) >= {"time", "host", "source", "sourcetype", "event"}
     assert hec["sourcetype"] == "cloudflow:dhcpv4"
     assert hec["event"] == json_format.MessageToDict(event, preserving_proto_field_name=True)
+
+
+# -- DNS sourcetype routing: service_role suffix (agrees with transform.c) ----
+
+
+def test_sourcetype_for_appends_dns_service_role():
+    cfg = hec_mapping.SplunkConfig()
+    # Non-DNS types are unaffected by service_role.
+    assert cfg.sourcetype_for("dhcpv4", "recursor") == "cloudflow:dhcpv4"
+    # DNS with a service_role appends ":<role>" to the base sourcetype.
+    assert cfg.sourcetype_for("dns", "recursor") == "cloudflow:dns:recursor"
+    # DNS with no service_role stays on the base.
+    assert cfg.sourcetype_for("dns", "") == "cloudflow:dns"
+    # The suffix appends to an operator-overridden base, too.
+    override = hec_mapping.SplunkConfig(sourcetypes={"dns": "cloudflow:dns_events"})
+    assert override.sourcetype_for("dns", "authoritative") == "cloudflow:dns_events:authoritative"
+
+
+def test_dns_hec_line_routes_sourcetype_by_service_role():
+    with_role = _build_dns_event(service_role="recursor")
+    line = hec_mapping.render_hec_line(
+        with_role, with_role.envelope.stream_name, hec_mapping.SplunkConfig()
+    )
+    assert json.loads(line)["sourcetype"] == "cloudflow:dns:recursor"
+
+    without_role = _build_dns_event()
+    line = hec_mapping.render_hec_line(
+        without_role, without_role.envelope.stream_name, hec_mapping.SplunkConfig()
+    )
+    assert json.loads(line)["sourcetype"] == "cloudflow:dns"
 
 
 # -- argument-error handling ---------------------------------------------------

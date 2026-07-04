@@ -57,9 +57,9 @@ XADD batch/flush), `dns` (the DNS-D5/D7/D8 knobs: `pending_table_capacity`,
 that example; unknown keys are logged and ignored.
 
 The DNS source writes exactly one stream, `cloudflow:v1:wire:dns`
-(`CF_STREAM_DNS`); `redis.stream_dns` and `capture.filter` are informational
-only (a mismatch is logged as a warning) — the builtin VLAN-aware udp/53 +
-tcp/53 cBPF filter is always used.
+(`CF_STREAM_DNS`); `redis.expected_stream_dns` and `capture.filter` are used for
+validation/logging only, not as overrides (a mismatch is logged as a warning) —
+the builtin VLAN-aware udp/53 + tcp/53 cBPF filter is always used.
 
 **Secrets are never in the YAML.** Redis/Splunk credentials come from the
 process environment (the systemd unit's `EnvironmentFile`). Three non-secret

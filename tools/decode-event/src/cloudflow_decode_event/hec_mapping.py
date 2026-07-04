@@ -16,7 +16,10 @@ Rules (verbatim from the contract):
 - host = envelope.source_host.
 - source = envelope.stream_name, falling back to the entry's stream.
 - sourcetype from sourcetypes keyed by envelope.source_type; unknown types
-  fall back to "cloudflow:<source_type>".
+  fall back to "cloudflow:<source_type>". For source_type == "dns", a
+  non-empty DnsTransactionEvent.service_role is appended to the base DNS
+  sourcetype as "<base>:<service_role>" (e.g. "cloudflow:dns:recursor"),
+  matching the per-role routing the C transform does.
 - index = config index, omitted entirely if empty.
 - event = MessageToDict(preserving_proto_field_name=True) verbatim.
 - raw_dhcp_payload stripped unless include_raw_payload.
@@ -50,11 +53,17 @@ class SplunkConfig:
     sourcetypes: Dict[str, str] = field(default_factory=dict)
     include_raw_payload: bool = False
 
-    def sourcetype_for(self, source_type: str) -> str:
+    def sourcetype_for(self, source_type: str, service_role: str = "") -> str:
         configured = self.sourcetypes.get(source_type)
-        if configured:
-            return configured
-        return f"cloudflow:{source_type}"
+        base = configured if configured else f"cloudflow:{source_type}"
+        # WP-DNS11b: route the DNS event sourcetype by the operator-assigned
+        # service_role, mirroring the C transform
+        # (sinks/cloudflow-sink-splunk/src/transform.c). A dns.transaction with
+        # a non-empty service_role appends ":<service_role>" to the base DNS
+        # sourcetype; empty/absent keeps the base cloudflow:dns.
+        if source_type == "dns" and service_role:
+            return f"{base}:{service_role}"
+        return base
 
 
 def format_hec_time(observed_time_unix_nano: int) -> str:
@@ -84,7 +93,11 @@ def event_to_hec_dict(cf_event, stream_name: str,
             _strip_raw_payload(event_dict, payload_field)
 
     source = envelope.stream_name or stream_name
-    sourcetype = splunk_config.sourcetype_for(envelope.source_type)
+    service_role = ""
+    if (envelope.source_type == "dns"
+            and cf_event.WhichOneof("payload") == "dns_transaction"):
+        service_role = cf_event.dns_transaction.service_role
+    sourcetype = splunk_config.sourcetype_for(envelope.source_type, service_role)
 
     hec: Dict[str, Any] = {
         "time": _TIME_PLACEHOLDER,
