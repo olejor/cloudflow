@@ -23,7 +23,8 @@
 
 static size_t put_bytes(uint8_t *buf, size_t off, const void *src, size_t n)
 {
-    memcpy(buf + off, src, n);
+    if (n != 0)                 /* memcpy(dst, NULL, 0) is UB; a zero-length */
+        memcpy(buf + off, src, n); /* copy (e.g. an empty TCP payload) is a no-op */
     return off + n;
 }
 
