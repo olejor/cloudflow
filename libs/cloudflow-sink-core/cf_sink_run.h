@@ -15,7 +15,8 @@
 #include <stdio.h>
 
 #include "cf_sink_config.h"
-#include "cf_sink_consumer.h" /* cf_sink_transform_fn, cf_sink_buf_t */
+#include "cf_sink_consumer.h"  /* cf_sink_transform_fn, cf_sink_buf_t */
+#include "cf_sink_delivery.h"  /* cf_sink_delivery_t */
 #include "cf_sink_stats.h"
 
 typedef struct {
@@ -27,6 +28,12 @@ typedef struct {
     int once;                       /* drain what is pending, then exit */
     long long min_idle_ms;          /* XAUTOCLAIM min-idle; <=0 => default 60s */
     FILE *stdout_stream;            /* stdout target in stdout mode; NULL => stdout */
+    /* Optional pluggable delivery client. When set (and not stdout mode), the
+     * loop delivers through it and the caller retains ownership. When NULL (the
+     * event + metrics sinks), cf_sink_run builds the HEC client from config
+     * exactly as today and wraps it via cf_hec_client_as_delivery -- the same
+     * delivery interface, default-HEC. Ignored in stdout mode. */
+    const cf_sink_delivery_t *delivery;
 } cf_sink_run_options_t;
 
 /* Runs the sink loop. Returns 0 on a clean exit, non-zero on a fatal startup

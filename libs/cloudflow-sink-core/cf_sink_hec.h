@@ -55,4 +55,12 @@ void cf_hec_client_set_sleep_fn(cf_hec_client_t *c, void (*sleep_fn)(double seco
 int cf_hec_client_send_batch(cf_hec_client_t *c, const cf_batch_item_t *items, size_t n,
                              uint8_t *delivered, uint8_t *poison, char **poison_errs);
 
+/* Expose the client as a pluggable delivery client (cf_sink_delivery.h). The
+ * returned value borrows `c`: its send_batch calls cf_hec_client_send_batch
+ * and its free calls cf_hec_client_free. The full struct is defined in
+ * cf_sink_delivery.h (which includes this header for cf_batch_item_t); it is
+ * only forward-declared here to keep the delivery interface layered on top of
+ * -- not tangled into -- the HEC client. */
+struct cf_sink_delivery cf_hec_client_as_delivery(cf_hec_client_t *c);
+
 #endif

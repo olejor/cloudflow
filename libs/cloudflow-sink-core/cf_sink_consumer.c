@@ -87,10 +87,10 @@ void cf_consumer_set_stdout(cf_consumer_t *c, FILE *stream)
     c->stdout_stream = stream ? stream : stdout;
 }
 
-void cf_consumer_set_hec(cf_consumer_t *c, cf_hec_client_t *hec)
+void cf_consumer_set_delivery(cf_consumer_t *c, const cf_sink_delivery_t *delivery)
 {
     c->stdout_mode = 0;
-    c->hec = hec;
+    c->delivery = delivery;
 }
 
 void cf_consumer_set_min_idle_ms(cf_consumer_t *c, long long ms)
@@ -290,7 +290,7 @@ static void flush_hec(cf_consumer_t *c)
         items[i].payload_len = c->batch[i].payload_len;
     }
 
-    cf_hec_client_send_batch(c->hec, items, n, delivered, poison, poison_errs);
+    c->delivery->send_batch(c->delivery->ctx, items, n, delivered, poison, poison_errs);
 
     for (i = 0; i < n; i++) {
         if (delivered[i]) {

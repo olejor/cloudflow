@@ -45,7 +45,10 @@ int cf_sink_run(const cf_sink_run_options_t *opt)
 {
     const cf_sink_config_t *cfg = opt->config;
     redisContext *ctx = NULL;
-    cf_hec_client_t *hec = NULL;
+    cf_hec_client_t *hec = NULL;          /* built here only when no delivery is supplied */
+    cf_sink_delivery_t hec_delivery;      /* wraps `hec` when we build it */
+    const cf_sink_delivery_t *delivery = NULL;
+    int built_hec = 0;                    /* owns `hec` + curl_global lifecycle */
     cf_consumer_t consumer;
     char errbuf[512];
     int rc = 0;
@@ -60,13 +63,24 @@ int cf_sink_run(const cf_sink_run_options_t *opt)
     }
 
     if (!opt->stdout_mode) {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
-        hec = cf_hec_client_new(&cfg->hec, opt->stats, errbuf, sizeof(errbuf));
-        if (!hec) {
-            cf_log(CF_LOG_ERROR, "HEC client init failed", "error", errbuf, NULL);
-            redisFree(ctx);
-            curl_global_cleanup();
-            return 1;
+        if (opt->delivery) {
+            /* Caller supplied a pluggable delivery client; use it verbatim and
+             * leave ownership (and any transport globals) to the caller. */
+            delivery = opt->delivery;
+        } else {
+            /* Default: build the HEC client from config exactly as before and
+             * drive it through the same delivery interface. */
+            curl_global_init(CURL_GLOBAL_DEFAULT);
+            hec = cf_hec_client_new(&cfg->hec, opt->stats, errbuf, sizeof(errbuf));
+            if (!hec) {
+                cf_log(CF_LOG_ERROR, "HEC client init failed", "error", errbuf, NULL);
+                redisFree(ctx);
+                curl_global_cleanup();
+                return 1;
+            }
+            hec_delivery = cf_hec_client_as_delivery(hec);
+            delivery = &hec_delivery;
+            built_hec = 1;
         }
     }
 
@@ -79,7 +93,7 @@ int cf_sink_run(const cf_sink_run_options_t *opt)
     if (opt->stdout_mode)
         cf_consumer_set_stdout(&consumer, opt->stdout_stream);
     else
-        cf_consumer_set_hec(&consumer, hec);
+        cf_consumer_set_delivery(&consumer, delivery);
     if (opt->min_idle_ms > 0)
         cf_consumer_set_min_idle_ms(&consumer, opt->min_idle_ms);
 
@@ -96,11 +110,11 @@ int cf_sink_run(const cf_sink_run_options_t *opt)
     cf_log(CF_LOG_INFO, "exiting", NULL);
 
 cleanup:
-    if (hec)
+    if (built_hec)
         cf_hec_client_free(hec);
     if (ctx)
         redisFree(ctx);
-    if (!opt->stdout_mode)
+    if (built_hec)
         curl_global_cleanup();
     return rc;
 }
