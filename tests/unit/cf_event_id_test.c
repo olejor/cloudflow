@@ -11,6 +11,25 @@
 static const uint8_t frame_a[] = { 0x01, 0x02, 0x03, 0x04 };
 static const uint8_t frame_b[] = { 0x01, 0x02, 0x03, 0x05 };
 
+/* Known-answer vector. The event ID is a compatibility contract (dev principle
+ * #7: stable enough for duplicate handling), so pin the exact digest for a
+ * fixed input. The expected value is the first 16 bytes of
+ *   SHA-256( len32(source_host) || source_host
+ *          || len32(capture_interface) || capture_interface
+ *          || len32(8) || be64(observed_time)
+ *          || len32(frame) || frame )
+ * computed independently (Python hashlib), so a refactor that silently changes
+ * the field framing or hash is caught here rather than by a stream of
+ * un-deduplicable IDs in production. */
+static void test_event_id_known_answer(void)
+{
+    char id[CF_EVENT_ID_LEN];
+
+    cf_event_id(id, "host-a", "eth0", 1234567890, frame_a, sizeof(frame_a));
+
+    CU_ASSERT_STRING_EQUAL(id, "48b0b7cd68da51bb65d478f8f8ef99bf");
+}
+
 static void test_event_id_stable_across_calls(void)
 {
     char id1[CF_EVENT_ID_LEN];
@@ -116,6 +135,8 @@ int cf_event_id_register_suite(void)
     if (!suite)
         return -1;
 
+    if (!CU_add_test(suite, "known-answer vector (independently computed)", test_event_id_known_answer))
+        return -1;
     if (!CU_add_test(suite, "stable across repeated calls", test_event_id_stable_across_calls))
         return -1;
     if (!CU_add_test(suite, "lowercase hex, 32 chars", test_event_id_lowercase_hex))

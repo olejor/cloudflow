@@ -51,7 +51,7 @@ LDLIBS   := -lcunit
 
 BUILD_DIR := build
 
-SOURCES := cf_core_test.c cf_sha256_test.c cf_event_id_test.c cf_log_test.c cf_time_test.c
+SOURCES := cf_core_test.c cf_sha256_test.c cf_event_id_test.c cf_log_test.c cf_time_test.c cf_sync_test.c
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(SOURCES:.c=.o))
 
 BIN := $(BUILD_DIR)/cf_core_test
@@ -256,7 +256,7 @@ ASAN_LDLIBS   := -lcunit
 # core suites cover sha256/event-id/log/time, not the queue, so cf_queue.c
 # is intentionally left out here -- it gets its own instrumented build
 # below, under the queue binary.) --
-CORE_ASAN_TEST_SOURCES := cf_core_test.c cf_sha256_test.c cf_event_id_test.c cf_log_test.c cf_time_test.c
+CORE_ASAN_TEST_SOURCES := cf_core_test.c cf_sha256_test.c cf_event_id_test.c cf_log_test.c cf_time_test.c cf_sync_test.c
 CORE_ASAN_LIB_SOURCES  := cloudflow.c cf_time.c cf_sync.c cf_log.c cf_event_id.c sha256.c
 
 CORE_ASAN_OBJECTS := $(addprefix $(BUILD_DIR)/asan_core_,$(CORE_ASAN_TEST_SOURCES:.c=.o)) \

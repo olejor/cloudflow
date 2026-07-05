@@ -124,6 +124,30 @@ int cf_queue_pop(cf_queue_t *queue, void *element)
     return 0;
 }
 
+int cf_queue_drop(cf_queue_t *queue)
+{
+    size_t head;
+    size_t tail;
+
+    if (!queue || !queue->storage)
+        return -1;
+
+    /* Own index: only the consumer (or a drop_oldest producer evicting to make
+     * room) ever writes tail, so relaxed is enough. */
+    tail = atomic_load_explicit(&queue->tail, memory_order_relaxed);
+    head = atomic_load_explicit(&queue->head, memory_order_acquire);
+
+    if (tail == head)
+        return 1;
+
+    /* No memcpy-out: we are discarding the slot, so nothing reads it. The
+     * release store still pairs with the producer's acquire load of tail
+     * (Pairing 2 in cf_queue_push) so the slot is safe to overwrite. */
+    atomic_store_explicit(&queue->tail, (tail + 1) % queue->capacity, memory_order_release);
+
+    return 0;
+}
+
 size_t cf_queue_length(const cf_queue_t *queue)
 {
     size_t head;

@@ -6,8 +6,9 @@
 
 /* Elements that ever flow through this helper are fixed-size structs from
  * cloudflow.h (cf_packet_item_t, cf_event_item_t), both well under this
- * bound. It exists so a hostile/garbage element_size can never turn the
- * drop_oldest victim buffer below into an unbounded stack allocation. */
+ * bound. It is a cheap sanity cap that rejects a hostile/garbage element_size
+ * up front (drop_oldest now evicts in place via cf_queue_drop(), so there is
+ * no longer a stack scratch buffer whose size this needs to bound). */
 #define CF_QUEUE_POLICY_MAX_ELEMENT_SIZE (64u * 1024u)
 
 #define CF_QUEUE_POLICY_BLOCK_SLEEP_NS (1000L * 1000L) /* 1 ms, per the WP-08 spec */
@@ -45,9 +46,10 @@ int cf_queue_push_policy(cf_queue_t *queue, const void *element, size_t element_
     /* rc == 1: queue was full at push time. Apply on_full. */
     switch (policy) {
     case CF_ONFULL_DROP_OLDEST: {
-        unsigned char victim[CF_QUEUE_POLICY_MAX_ELEMENT_SIZE];
-
-        if (cf_queue_pop(queue, victim) == 0) {
+        /* Drop the oldest element in place -- cf_queue_drop() advances tail
+         * without copying the victim out, so there is no per-eviction scratch
+         * buffer on the stack. */
+        if (cf_queue_drop(queue) == 0) {
             if (drop_counter)
                 CF_ATOMIC_INC(*drop_counter);
 

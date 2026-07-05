@@ -108,8 +108,20 @@ static int parse_extra(yaml_document_t *doc, cf_config_t *out, char *errbuf, siz
                 kt = realloc(out->st_keys, cap * sizeof(char *));
                 vt = realloc(out->st_vals, cap * sizeof(char *));
                 if (!kt || !vt) {
-                    free(kt ? kt : out->st_keys);
-                    free(vt ? vt : out->st_vals);
+                    /* Free the n key/value strings already duplicated into the
+                     * arrays before dropping the arrays themselves, or they
+                     * leak on this OOM path. Use whichever array pointer is
+                     * still valid: a failed realloc left the original intact,
+                     * a succeeded one moved it to kt/vt. */
+                    char **keys = kt ? kt : out->st_keys;
+                    char **vals = vt ? vt : out->st_vals;
+                    size_t i;
+                    for (i = 0; i < n; i++) {
+                        free(keys[i]);
+                        free(vals[i]);
+                    }
+                    free(keys);
+                    free(vals);
                     out->st_keys = NULL;
                     out->st_vals = NULL;
                     out->st_count = 0;
