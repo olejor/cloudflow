@@ -1,7 +1,7 @@
 /* CUnit driver for the WP-03 cloudflow-core acceptance tests. Individual
- * suites live in cf_sha256_test.c, cf_event_id_test.c, cf_log_test.c, and
- * cf_time_test.c; each exposes a `cf_*_register_suite()` function declared
- * in cf_core_test.h. */
+ * suites live in cf_sha256_test.c, cf_event_id_test.c, cf_log_test.c,
+ * cf_time_test.c, and cf_sync_test.c; each exposes a `cf_*_register_suite()`
+ * function declared in cf_core_test.h. */
 
 #include <CUnit/Basic.h>
 #include <CUnit/CUnit.h>
@@ -15,10 +15,13 @@ int main(void)
     if (CU_initialize_registry() != CUE_SUCCESS)
         return (int)CU_get_error();
 
+    /* cf_sync_register_suite() is last on purpose: it trips the process-wide
+     * stop flag, which has no reset (see cf_sync_test.c). */
     if (cf_sha256_register_suite() != 0 ||
         cf_event_id_register_suite() != 0 ||
         cf_log_register_suite() != 0 ||
-        cf_time_register_suite() != 0) {
+        cf_time_register_suite() != 0 ||
+        cf_sync_register_suite() != 0) {
         CU_cleanup_registry();
         return (int)CU_get_error();
     }

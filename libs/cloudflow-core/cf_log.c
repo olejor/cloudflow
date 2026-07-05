@@ -164,8 +164,11 @@ void cf_log(cf_log_level_t level, const char *msg, ...)
     len = (size_t)snprintf(line, sizeof(line),
                              "{\"ts\":\"%s\",\"level\":\"%s\",\"service\":\"",
                              ts_buf, cf_log_level_name(level));
-    if (len >= sizeof(line))
-        len = sizeof(line) - 1;
+    /* Clamp to `cap`, not sizeof(line)-1: the unconditional "}\n\0" tail
+     * appended below writes at line[len], [len+1], [len+2], so `len` must
+     * leave those three bytes free even when this header snprintf truncates. */
+    if (len > cap)
+        len = cap;
 
     (void)cf_log_append_field(line, cap, &len, "", g_service_name, scratch, sizeof(scratch));
     (void)cf_log_append_field(line, cap, &len, ",\"msg\":\"", msg, scratch, sizeof(scratch));

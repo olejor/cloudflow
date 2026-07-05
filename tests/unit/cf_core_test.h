@@ -10,5 +10,6 @@ int cf_sha256_register_suite(void);
 int cf_event_id_register_suite(void);
 int cf_log_register_suite(void);
 int cf_time_register_suite(void);
+int cf_sync_register_suite(void);
 
 #endif

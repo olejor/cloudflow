@@ -133,6 +133,40 @@ static void test_pop_empty(void)
     cf_queue_destroy(&q);
 }
 
+/* ---- drop (non-copying oldest eviction) ------------------------------ */
+
+static void test_drop(void)
+{
+    cf_queue_t q;
+    uint32_t v, out;
+
+    CU_ASSERT_EQUAL(cf_queue_init(&q, 8, sizeof(uint32_t)), 0);
+
+    /* drop on empty reports "empty" (1), not an error or a crash. */
+    CU_ASSERT_EQUAL(cf_queue_drop(&q), 1);
+    CU_ASSERT_EQUAL(cf_queue_drop(NULL), -1);
+
+    for (v = 0; v < 5; v++)
+        CU_ASSERT_EQUAL(cf_queue_push(&q, &v), 0);
+    CU_ASSERT_EQUAL(cf_queue_length(&q), 5u);
+
+    /* Dropping advances past the oldest without copying it out; the next pop
+     * must therefore return the second element (1), not the dropped 0. */
+    CU_ASSERT_EQUAL(cf_queue_drop(&q), 0);
+    CU_ASSERT_EQUAL(cf_queue_length(&q), 4u);
+    CU_ASSERT_EQUAL(cf_queue_pop(&q, &out), 0);
+    CU_ASSERT_EQUAL(out, 1u);
+
+    /* Drop the rest, then confirm empty. */
+    CU_ASSERT_EQUAL(cf_queue_drop(&q), 0); /* 2 */
+    CU_ASSERT_EQUAL(cf_queue_drop(&q), 0); /* 3 */
+    CU_ASSERT_EQUAL(cf_queue_drop(&q), 0); /* 4 */
+    CU_ASSERT_EQUAL(cf_queue_length(&q), 0u);
+    CU_ASSERT_EQUAL(cf_queue_drop(&q), 1);
+
+    cf_queue_destroy(&q);
+}
+
 /* ---- payload integrity round-trip ------------------------------------ */
 
 typedef struct {
@@ -366,6 +400,7 @@ int main(void)
     if (!CU_add_test(suite, "init/destroy", test_init_destroy) ||
         !CU_add_test(suite, "push to capacity reports full at capacity() elements", test_push_to_capacity) ||
         !CU_add_test(suite, "pop from empty queue reports empty, not error", test_pop_empty) ||
+        !CU_add_test(suite, "drop evicts oldest without copying", test_drop) ||
         !CU_add_test(suite, "payload round-trips intact", test_payload_roundtrip) ||
         !CU_add_test(suite, "wrap-around over 1000 push/pop cycles", test_wraparound) ||
         !CU_add_test(suite, "2-thread SPSC stress test (1e6 elements)", test_stress_spsc)) {
