@@ -14,7 +14,7 @@
 FROM debian:12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc make pkg-config \
+        gcc libc6-dev make pkg-config \
         protobuf-compiler protobuf-c-compiler libprotobuf-c-dev \
         libhiredis-dev libyaml-dev libcurl4-openssl-dev \
         ca-certificates \
