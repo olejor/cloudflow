@@ -151,18 +151,28 @@ static void send_range(deliver_ctx_t *d, const cf_batch_item_t *items, size_t lo
 
     CF_ATOMIC_INC(d->stats->splunk_delivery_errors_total);
 
-    if (count == 1) {
-        char *err = malloc(64 + CF_DELIVER_BODY_PREFIX_MAX);
-        if (err)
-            snprintf(err, 64 + CF_DELIVER_BODY_PREFIX_MAX, "HTTP %ld: %s", status, body_prefix);
-        poison[lo] = 1;
-        poison_errs[lo] = err;
-        cf_log(CF_LOG_WARN, "delivery rejected single event, dead-lettering", "entry_id",
-               items[lo].entry_id, NULL);
-        return;
-    }
+    {
+        char statusbuf[24];
 
-    cf_log(CF_LOG_WARN, "delivery rejected batch with non-retryable status, bisecting", NULL);
+        snprintf(statusbuf, sizeof(statusbuf), "%ld", status);
+
+        if (count == 1) {
+            char *err = malloc(64 + CF_DELIVER_BODY_PREFIX_MAX);
+            if (err)
+                snprintf(err, 64 + CF_DELIVER_BODY_PREFIX_MAX, "HTTP %ld: %s", status, body_prefix);
+            poison[lo] = 1;
+            poison_errs[lo] = err;
+            /* Surface the status + response-body prefix: an operator (and the
+             * integration harness) needs the destination's actual complaint,
+             * not just "rejected". */
+            cf_log(CF_LOG_WARN, "delivery rejected single event, dead-lettering", "entry_id",
+                   items[lo].entry_id, "status", statusbuf, "response", body_prefix, NULL);
+            return;
+        }
+
+        cf_log(CF_LOG_WARN, "delivery rejected batch with non-retryable status, bisecting",
+               "status", statusbuf, "response", body_prefix, NULL);
+    }
     mid = count / 2;
     send_range(d, items, lo, mid, backoff, delivered, poison, poison_errs);
     send_range(d, items, lo + mid, count - mid, backoff, delivered, poison, poison_errs);
