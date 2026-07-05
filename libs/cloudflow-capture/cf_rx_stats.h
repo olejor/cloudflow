@@ -23,6 +23,9 @@
  * cf_packet_item_t's owning header is a different library; the flag constant
  * belongs with the capture layer that sets it. */
 #define CF_PACKET_FLAG_TRUNCATED 0x00000001u
+/* Set (in addition to CF_PACKET_FLAG_TRUNCATED) when the copy was cut by the
+ * configured capture snaplen rather than the hard CLOUDFLOW_PACKET_MAX_SIZE. */
+#define CF_PACKET_FLAG_SNAP_TRUNCATED 0x00000002u
 
 typedef struct {
     /* Every frame observed (ring capture) or read (pcap replay), whether
@@ -42,6 +45,12 @@ typedef struct {
     /* Frames whose captured bytes exceeded CLOUDFLOW_PACKET_MAX_SIZE and
      * were copied truncated (CF_PACKET_FLAG_TRUNCATED set). */
     atomic_ulong packets_truncated_total;
+
+    /* Frames whose copy was cut short by the configured capture snaplen (as
+     * opposed to the hard CLOUDFLOW_PACKET_MAX_SIZE ceiling counted in
+     * packets_truncated_total). A rising value means the parser may be starved
+     * of bytes -- raise capture.snaplen. */
+    atomic_ulong packets_snap_truncated_total;
 
     /* Total bytes actually copied out of the ring/pcap into packet items
      * (sum of captured_len). Divided by packets_received_total this is the

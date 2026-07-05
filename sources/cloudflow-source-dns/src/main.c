@@ -348,6 +348,7 @@ int main(int argc, char *argv[])
         rcfg.out = &q_pkt;
         rcfg.stats = &stats.rx;
         rcfg.on_full = cfg->queues_on_full;
+        rcfg.copy_snaplen = cfg->capture_snaplen;
         rcfg.bpf = dns_bpf;
         rcfg.bpf_len = (unsigned short)dns_bpf_len;
 

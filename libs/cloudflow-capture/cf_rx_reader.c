@@ -101,8 +101,16 @@ static void handle_packet(const struct tpacket3_hdr *packet, const cf_rx_reader_
         (int64_t)packet->tp_sec * 1000000000LL + (int64_t)packet->tp_nsec;
     item.packet_len = packet->tp_len;
 
+    /* Bound the copy by the configured snaplen (if any), then by the hard
+     * packet-item ceiling. A snaplen shorter than the frame is a deliberate
+     * "copy only what the parser needs" and is tracked separately from a frame
+     * that overflows CLOUDFLOW_PACKET_MAX_SIZE. */
     captured = packet->tp_snaplen;
     copy_len = captured;
+    if (cfg->copy_snaplen != 0 && copy_len > cfg->copy_snaplen) {
+        copy_len = cfg->copy_snaplen;
+        item.flags |= CF_PACKET_FLAG_TRUNCATED | CF_PACKET_FLAG_SNAP_TRUNCATED;
+    }
     if (copy_len > CLOUDFLOW_PACKET_MAX_SIZE) {
         copy_len = CLOUDFLOW_PACKET_MAX_SIZE;
         item.flags |= CF_PACKET_FLAG_TRUNCATED;
@@ -117,6 +125,8 @@ static void handle_packet(const struct tpacket3_hdr *packet, const cf_rx_reader_
         CF_ATOMIC_ADD(cfg->stats->rx_bytes_copied_total, (unsigned long)copy_len);
         if (item.flags & CF_PACKET_FLAG_TRUNCATED)
             CF_ATOMIC_INC(cfg->stats->packets_truncated_total);
+        if (item.flags & CF_PACKET_FLAG_SNAP_TRUNCATED)
+            CF_ATOMIC_INC(cfg->stats->packets_snap_truncated_total);
     }
 
     (void)cf_queue_push_policy(cfg->out, &item, sizeof(item), cfg->on_full,
