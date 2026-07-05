@@ -58,6 +58,11 @@ typedef struct {
     size_t mem_size;
     uint32_t block_size;
     uint32_t block_count;
+    /* TPACKET_V3 fills blocks strictly in order, so the reader resumes its scan
+     * from the last block it handed back to the kernel instead of rescanning
+     * from block 0 on every wake -- cheap at 12 blocks, but it keeps the wake
+     * cost O(ready blocks) rather than O(block_count) as the ring grows. */
+    uint32_t next_block;
     struct iovec *iov;
 } cf_rx_ring_t;
 
@@ -313,14 +318,20 @@ static void rx_reader_loop(cf_rx_reader_state_t *state)
         if (events[0].data.fd != state->ring.fd)
             continue;
 
+        /* Process ready blocks in order from the cursor, stopping at the first
+         * block the kernel still owns (blocks fill sequentially, so a
+         * kernel-owned block means none after it are ready yet). The count
+         * bound guards against spinning if every block is ready at once. */
         for (i = 0; i < state->ring.block_count; i++) {
-            struct tpacket_block_desc *block = state->ring.iov[i].iov_base;
+            struct tpacket_block_desc *block =
+                state->ring.iov[state->ring.next_block].iov_base;
 
             if (!block_is_ready(block))
-                continue;
+                break;
 
             block_walk(block, &state->cfg);
             block_mark_done(block);
+            state->ring.next_block = (state->ring.next_block + 1) % state->ring.block_count;
         }
     }
 
