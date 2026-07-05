@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "yyjson.h"
 
@@ -12,23 +13,29 @@
 
 /* ---- small helpers (shared shape with the metrics sink transform) -------- */
 
-/* observed_time_unix_nano -> epoch seconds with exactly 9 decimals, rendered as
- * a bare JSON number for ClickHouse DateTime64(9) (a numeric value is a Unix
- * timestamp in seconds; the fractional part carries sub-second precision). */
+/* observed_time_unix_nano -> "YYYY-MM-DD HH:MM:SS.fffffffff" (UTC), the string
+ * form ClickHouse parses unambiguously into DateTime64(9) with full nanosecond
+ * precision. A bare numeric epoch is NOT usable: ClickHouse's JSONEachRow
+ * DateTime64 reader rejects the fractional part of a number ("Cannot parse
+ * input: expected ',' before: '.000000000'"), which the real-delivery harness
+ * caught. The column is DateTime64(9) with no timezone, so ClickHouse reads
+ * this string in the server timezone (UTC by default). */
 static void format_observed_time(int64_t nanos, char *buf, size_t cap)
 {
-    const char *sign = "";
-    uint64_t mag, secs, frac;
+    int64_t   secs = nanos / 1000000000LL;
+    int64_t   frac = nanos % 1000000000LL;
+    time_t    t;
+    struct tm tmv;
 
-    if (nanos < 0) {
-        sign = "-";
-        mag = (uint64_t)(-(nanos + 1)) + 1u; /* safe negation for INT64_MIN */
-    } else {
-        mag = (uint64_t)nanos;
+    if (frac < 0) { /* floor toward -inf so sub-second stays in [0,1e9) */
+        frac += 1000000000LL;
+        secs -= 1;
     }
-    secs = mag / 1000000000ull;
-    frac = mag % 1000000000ull;
-    snprintf(buf, cap, "%s%" PRIu64 ".%09" PRIu64, sign, secs, frac);
+    t = (time_t)secs;
+    gmtime_r(&t, &tmv);
+    snprintf(buf, cap, "%04d-%02d-%02d %02d:%02d:%02d.%09lld",
+             tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+             tmv.tm_hour, tmv.tm_min, tmv.tm_sec, (long long)frac);
 }
 
 static const char *dns_leg_name(Cloudflow__V1__DnsLeg role)
@@ -202,8 +209,8 @@ static int add_common(yyjson_mut_doc *doc, yyjson_mut_val *row,
         return -1;
 
     format_observed_time(env->observed_time_unix_nano, time_buf, sizeof(time_buf));
-    /* observed_time is a bare JSON number (DateTime64(9) epoch seconds). */
-    if (!yyjson_mut_obj_add_val(doc, row, "observed_time", yyjson_mut_rawcpy(doc, time_buf)))
+    /* observed_time is a quoted datetime string for DateTime64(9). */
+    if (add_str(doc, row, "observed_time", time_buf) != 0)
         return -1;
 
     if (add_str(doc, row, "source_type", env->source_type) != 0 ||

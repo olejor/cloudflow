@@ -100,8 +100,10 @@ PARTITION BY toDate(observed_time)
 ORDER BY (source_type, observed_time, event_id);
 ```
 
-`observed_time` is emitted as epoch seconds with 9 decimals (a numeric
-JSONEachRow value ClickHouse reads as a `DateTime64(9)` timestamp). Protocol
+`observed_time` is emitted as a UTC `"YYYY-MM-DD HH:MM:SS.fffffffff"` string,
+which ClickHouse reads into `DateTime64(9)` with full nanosecond precision. (A
+bare numeric epoch is not usable: ClickHouse's JSONEachRow `DateTime64` reader
+rejects the fractional part of a number.) Protocol
 columns use the normalized identity from `docs/event-model.md`: for DHCP the
 `client_key` (client-id / chaddr, or the DUID hex for v6) rather than the usually
 `0.0.0.0` `src_ip`; for DNS the `client_ip` / `server_ip` / `role` surfaced on
