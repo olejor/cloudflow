@@ -21,11 +21,14 @@ redis:
   deadletter_stream: cloudflow:v1:deadletter:sink-clickhouse
 
 clickhouse:
-  # Plain HTTP interface; the harness ClickHouse runs with the default user and
-  # no password, so user_env/password_env are omitted (see the sink README).
+  # Plain HTTP interface. Credentials come from the environment (D6): the
+  # compose file sets CLICKHOUSE_USER/CLICKHOUSE_PASSWORD on this container to
+  # match the ClickHouse service.
   url: http://clickhouse:8123
   database: cloudflow
   table: events
+  user_env: CLICKHOUSE_USER
+  password_env: CLICKHOUSE_PASSWORD
   batch_size: 1000
   flush_interval_ms: 200
   request_timeout_ms: 5000

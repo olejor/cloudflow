@@ -35,6 +35,14 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
+    # An explicit user/password: the image's `default` user rejects
+    # unauthenticated HTTP INSERTs from other containers (Code 516), and prod
+    # ClickHouse is authenticated anyway. The sink authenticates with the same
+    # credentials via its user_env/password_env (secrets in env, D6).
+    environment:
+      CLICKHOUSE_USER: cloudflow
+      CLICKHOUSE_PASSWORD: cloudflow
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     # The schema DDL is auto-applied on first start: the server runs every
     # *.sql under /docker-entrypoint-initdb.d, creating cloudflow.events.
     volumes:
@@ -44,7 +52,7 @@ services:
         soft: 262144
         hard: 262144
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client -q 'SELECT 1' || exit 1"]
+      test: ["CMD-SHELL", "clickhouse-client --user cloudflow --password cloudflow -q 'SELECT 1' || exit 1"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -97,6 +105,9 @@ services:
 
   clickhouse-sink:
     <<: *app-image
+    environment:
+      CLICKHOUSE_USER: cloudflow
+      CLICKHOUSE_PASSWORD: cloudflow
     depends_on:
       redis:
         condition: service_healthy

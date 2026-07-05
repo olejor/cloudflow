@@ -78,7 +78,7 @@ done
 # for the table to exist before anything tries to INSERT into it.
 log "waiting for the ClickHouse schema (cloudflow.events)"
 for _ in $(seq 1 30); do
-    exists="$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client -q "EXISTS TABLE cloudflow.events" 2>/dev/null | tr -dc '0-9' || true)"
+    exists="$("${COMPOSE[@]}" exec -T clickhouse clickhouse-client --user cloudflow --password cloudflow -q "EXISTS TABLE cloudflow.events" 2>/dev/null | tr -dc '0-9' || true)"
     [[ "$exists" == "1" ]] && break
     sleep 2
 done
@@ -91,7 +91,9 @@ redis_cli() { "${COMPOSE[@]}" exec -T redis redis-cli "$@"; }
 # ("0") or decorated ("1) (integer) 0", "(integer) 5") output.
 redis_int() { redis_cli "$@" | awk 'NR==1{n=$NF; gsub(/[^0-9]/,"",n); print n; exit}'; }
 # clickhouse-client -q returns a bare number; strip to digits defensively.
-ch_count() { "${COMPOSE[@]}" exec -T clickhouse clickhouse-client -q "$1" | tr -dc '0-9'; }
+# Authenticate with the harness credentials (the default user is not usable).
+ch_client() { "${COMPOSE[@]}" exec -T clickhouse clickhouse-client --user cloudflow --password cloudflow "$@"; }
+ch_count() { ch_client -q "$1" | tr -dc '0-9'; }
 
 # ---- 2. replay fixtures through the sources ------------------------------
 log "replaying DHCP fixtures through the DHCP source"

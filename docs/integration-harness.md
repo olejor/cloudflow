@@ -68,8 +68,10 @@ down (a trap runs `docker compose down -v` on exit). It runs as the
   difference is the `https://` scheme and a real certificate).
 - Secrets stay in the environment (D6): the HEC token is passed via
   `CF_HARNESS_HEC_TOKEN` in `docker-compose.yml`, never in a YAML file. The fake
-  HEC accepts any token. The dev ClickHouse runs as the default user with no
-  password, so the ClickHouse sink omits `user_env`/`password_env`.
+  HEC accepts any token. The dev ClickHouse is created with an explicit
+  `cloudflow`/`cloudflow` user (`CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`) — the
+  image rejects unauthenticated HTTP `INSERT`s over the network — and the sink
+  authenticates with the same credentials via `user_env`/`password_env`.
 - Fail-injection: set `CF_HEC_FAIL_TIMES` on the `hecfake` service to make the
   first N HTTP requests return `CF_HEC_FAIL_STATUS` (default 503), exercising the
   sinks' retry path before eventual success.
