@@ -1,0 +1,10 @@
+# cloudflow-source-dns file contexts
+#
+# The binary is the domain entrypoint; the YAML config and the secrets
+# EnvironmentFile both get the private conf type so no other confined domain
+# can read them.
+
+/usr/local/bin/cloudflow-source-dns	--	gen_context(system_u:object_r:cloudflow_source_dns_exec_t,s0)
+
+/etc/cloudflow/dns-source\.yaml	--	gen_context(system_u:object_r:cloudflow_source_dns_conf_t,s0)
+/etc/cloudflow/dns-source\.env	--	gen_context(system_u:object_r:cloudflow_source_dns_conf_t,s0)

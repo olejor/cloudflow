@@ -1,0 +1,69 @@
+policy_module(cloudflow_source_dns, 1.0.0)
+
+########################################
+#
+# Declarations
+#
+
+## <desc>
+##	<p>
+##	CloudFlow wire-observed DNS source: an AF_PACKET capture daemon that
+##	parses udp/53 and tcp/53, correlates each query with its response into a
+##	protobuf CloudFlowEvent (DnsTransactionEvent), and pushes it to Redis
+##	Streams.
+##	</p>
+## </desc>
+
+type cloudflow_source_dns_t;
+type cloudflow_source_dns_exec_t;
+init_daemon_domain(cloudflow_source_dns_t, cloudflow_source_dns_exec_t)
+
+# Private config type. This source ships an EnvironmentFile of secrets
+# (Redis/Splunk credentials, mode 0600) alongside the YAML; both get this type
+# so only this domain can read them.
+type cloudflow_source_dns_conf_t;
+files_config_file(cloudflow_source_dns_conf_t)
+
+########################################
+#
+# Local policy
+#
+
+# Capabilities. CAP_NET_RAW opens the AF_PACKET/PACKET_RX_RING capture socket;
+# CAP_SYS_NICE raises the rx-reader to best-effort SCHED_FIFO (its absence is
+# logged and capture continues at normal priority -- see the systemd unit).
+allow cloudflow_source_dns_t self:capability { net_raw sys_nice };
+allow cloudflow_source_dns_t self:process { getsched setsched signal signull };
+
+# The pipeline is three threads coordinating over SPSC ring buffers.
+allow cloudflow_source_dns_t self:fifo_file rw_fifo_file_perms;
+
+# The TPACKET_V3 capture ring is an AF_PACKET socket: create/bind it, set the
+# ring options (PACKET_RX_RING / PACKET_VERSION), mmap it (map), and read the
+# interface index via ioctl.
+allow cloudflow_source_dns_t self:packet_socket
+	{ create bind read write getopt setopt ioctl map };
+
+# Redis transport. Endpoints are configured as host:port (e.g. redis01:6379),
+# so the daemon resolves names and makes an outbound TCP connection to a
+# redis_port_t; it never listens.
+allow cloudflow_source_dns_t self:tcp_socket create_stream_socket_perms;
+corenet_all_recvfrom_unlabeled(cloudflow_source_dns_t)
+corenet_all_recvfrom_netlabel(cloudflow_source_dns_t)
+corenet_tcp_sendrecv_generic_if(cloudflow_source_dns_t)
+corenet_tcp_sendrecv_generic_node(cloudflow_source_dns_t)
+corenet_tcp_connect_redis_port(cloudflow_source_dns_t)
+corenet_tcp_sendrecv_redis_port(cloudflow_source_dns_t)
+sysnet_dns_name_resolve(cloudflow_source_dns_t)
+
+# Read its own YAML + EnvironmentFile (and nothing else) under /etc/cloudflow.
+read_files_pattern(cloudflow_source_dns_t, cloudflow_source_dns_conf_t, cloudflow_source_dns_conf_t)
+files_search_etc(cloudflow_source_dns_t)
+
+# Structured JSON logs are written to the inherited stderr fd, which systemd
+# wires to journald; the syslog path is allowed for completeness.
+logging_send_syslog_msg(cloudflow_source_dns_t)
+
+# Read-only bits every daemon touches.
+files_read_etc_files(cloudflow_source_dns_t)
+miscfiles_read_localization(cloudflow_source_dns_t)

@@ -96,6 +96,16 @@ tight `CapabilityBoundingSet=CAP_NET_RAW CAP_SYS_NICE` and allows
 `RestrictAddressFamilies=AF_PACKET AF_INET AF_INET6 AF_UNIX` — sinks are stricter
 (no raw socket, empty capability set, no `AF_PACKET`).
 
+## SELinux
+
+`selinux/cloudflow_source_dns.{te,fc}` confine the daemon to the
+`cloudflow_source_dns_t` domain on RHEL 9: `CAP_NET_RAW`/`CAP_SYS_NICE` for the
+capture ring, best-effort `SCHED_FIFO`, outbound TCP to Redis, and read-only
+access to a private `cloudflow_source_dns_conf_t` type that labels
+`dns-source.yaml` and the secrets `dns-source.env` (nothing else can read
+them). Build with `make -C selinux` and install per `docs/selinux.md`, which
+also covers the permissive-first rollout.
+
 ## Layout and build
 
 ```text
