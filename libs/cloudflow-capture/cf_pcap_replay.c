@@ -169,6 +169,7 @@ long pcap_replay_file(const char *path, cf_queue_t *out, cf_rx_stats_t *stats,
 
         if (stats) {
             CF_ATOMIC_INC(stats->packets_received_total);
+            CF_ATOMIC_ADD(stats->rx_bytes_copied_total, (unsigned long)copy_len);
             if (item.flags & CF_PACKET_FLAG_TRUNCATED)
                 CF_ATOMIC_INC(stats->packets_truncated_total);
         }

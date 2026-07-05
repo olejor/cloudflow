@@ -42,6 +42,13 @@ typedef struct {
     /* Frames whose captured bytes exceeded CLOUDFLOW_PACKET_MAX_SIZE and
      * were copied truncated (CF_PACKET_FLAG_TRUNCATED set). */
     atomic_ulong packets_truncated_total;
+
+    /* Total bytes actually copied out of the ring/pcap into packet items
+     * (sum of captured_len). Divided by packets_received_total this is the
+     * mean captured bytes/packet -- the measurement that shows how much of the
+     * fixed ~2 KB packet-item copy is real payload vs. wasted movement, which
+     * is the evidence for the descriptor-queue/slab work. */
+    atomic_ulong rx_bytes_copied_total;
 } cf_rx_stats_t;
 
 #endif

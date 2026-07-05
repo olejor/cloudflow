@@ -109,6 +109,7 @@ static void handle_packet(const struct tpacket3_hdr *packet, const cf_rx_reader_
 
     if (cfg->stats) {
         CF_ATOMIC_INC(cfg->stats->packets_received_total);
+        CF_ATOMIC_ADD(cfg->stats->rx_bytes_copied_total, (unsigned long)copy_len);
         if (item.flags & CF_PACKET_FLAG_TRUNCATED)
             CF_ATOMIC_INC(cfg->stats->packets_truncated_total);
     }
