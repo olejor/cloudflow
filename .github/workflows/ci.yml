@@ -184,3 +184,21 @@ jobs:
         env:
           CF_TEST_REDIS: 127.0.0.1:6379
         run: ./scripts/run-integration-tests.sh
+
+  # Real-delivery harness (project review G2): the delivery paths the plain
+  # integration job cannot cover. docker-compose stands up Redis + a real
+  # ClickHouse + a fake Splunk HEC, replays fixtures through the sources, then
+  # runs the three sinks in real delivery mode so libcurl POST / INSERT /
+  # retry / ack-after-2xx / dead-letter all execute for real. ubuntu-latest
+  # ships docker + the compose plugin, so no extra setup is needed.
+  real-delivery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: real-delivery harness
+        run: ./tests/integration/realdelivery/run.sh
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -f tests/integration/realdelivery/docker-compose.yml logs || true
