@@ -1,0 +1,32 @@
+# Splunk event sink -> fake HEC (real HTTP delivery, not --stdout).
+# The HEC token comes from the environment (CF_HARNESS_HEC_TOKEN), never here.
+service:
+  name: cloudflow-sink-splunk
+  consumer_name: harness-splunk-01
+
+redis:
+  endpoints:
+    - redis:6379
+  streams:
+    - cloudflow:v1:wire:dhcpv4
+    - cloudflow:v1:wire:dhcpv6
+    - cloudflow:v1:wire:dns
+  consumer_group: sink-splunk
+  read_count: 200
+  block_ms: 200
+
+splunk:
+  hec_url: http://hecfake:8088/services/collector/event
+  hec_token_env: CF_HARNESS_HEC_TOKEN
+  index: ""
+  sourcetypes:
+    dhcpv4: cloudflow:dhcpv4
+    dhcpv6: cloudflow:dhcpv6
+    dns: cloudflow:dns
+  batch_size: 500
+  flush_interval_ms: 200
+  request_timeout_ms: 2000
+  # Plain HTTP to the fake HEC, so TLS verification is not exercised here
+  # (the only prod difference is the https:// scheme + a real cert).
+  tls_verify: false
+  include_raw_payload: false

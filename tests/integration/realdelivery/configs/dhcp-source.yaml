@@ -1,0 +1,25 @@
+# DHCP source config for the real-delivery harness. Run with --replay; the
+# fixed source_host keeps event_id (D5) deterministic across runs.
+service:
+  name: cloudflow-source-dhcp
+  source_host: harness-dhcp-source-01
+
+capture:
+  interface: harness0
+  method: rxring
+  snaplen: 1500
+  filter: "udp and (port 67 or port 68 or port 546 or port 547)"
+
+queues:
+  rx_to_formatter_capacity: 65536
+  formatter_to_redis_capacity: 65536
+  on_full: drop_newest
+
+redis:
+  endpoints:
+    - redis:6379
+  stream_dhcpv4: cloudflow:v1:wire:dhcpv4
+  stream_dhcpv6: cloudflow:v1:wire:dhcpv6
+  maxlen_approx: 1000000
+  xadd_batch_size: 100
+  xadd_flush_interval_ms: 10

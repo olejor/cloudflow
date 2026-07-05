@@ -1,0 +1,30 @@
+# DNS source config for the real-delivery harness. Run with --replay over the
+# concatenated q_a query+response pair so the correlation stage emits exactly
+# one dns.transaction.observed. 192.0.2.53 owns :53 in the fixtures, so the
+# transaction classifies CLIENT_FACING.
+service:
+  name: cloudflow-source-dns
+  source_host: harness-dns-source-01
+
+capture:
+  interface: harness0
+  method: rxring
+  snaplen: 1500
+
+queues:
+  rx_to_stage_capacity: 65536
+  stage_to_redis_capacity: 65536
+  on_full: drop_newest
+
+redis:
+  endpoints:
+    - redis:6379
+  expected_stream_dns: cloudflow:v1:wire:dns
+  maxlen_approx: 1000000
+  xadd_batch_size: 100
+  xadd_flush_interval_ms: 10
+
+dns:
+  local_service_addresses:
+    - 192.0.2.53
+  emit_policy: all

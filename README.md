@@ -76,6 +76,7 @@ cloudflow/
 │   ├── clickhouse-sink.md
 │   ├── failure-modes.md
 │   ├── selinux.md
+│   ├── integration-harness.md
 │   └── building-and-testing.md
 │
 ├── proto/

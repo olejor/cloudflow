@@ -1,0 +1,35 @@
+# ClickHouse sink -> real ClickHouse (real INSERT over the HTTP interface).
+# This is the leg the plain integration script cannot cover: it runs the sink
+# in --stdout mode because CI has no ClickHouse. Here a real server accepts the
+# INSERT INTO cloudflow.events FORMAT JSONEachRow.
+#
+# A third consumer group (sink-clickhouse) over the same wire streams.
+service:
+  name: cloudflow-sink-clickhouse
+  consumer_name: harness-clickhouse-01
+
+redis:
+  endpoints:
+    - redis:6379
+  streams:
+    - cloudflow:v1:wire:dhcpv4
+    - cloudflow:v1:wire:dhcpv6
+    - cloudflow:v1:wire:dns
+  consumer_group: sink-clickhouse
+  read_count: 200
+  block_ms: 200
+  deadletter_stream: cloudflow:v1:deadletter:sink-clickhouse
+
+clickhouse:
+  # Plain HTTP interface. Credentials come from the environment (D6): the
+  # compose file sets CLICKHOUSE_USER/CLICKHOUSE_PASSWORD on this container to
+  # match the ClickHouse service.
+  url: http://clickhouse:8123
+  database: cloudflow
+  table: events
+  user_env: CLICKHOUSE_USER
+  password_env: CLICKHOUSE_PASSWORD
+  batch_size: 1000
+  flush_interval_ms: 200
+  request_timeout_ms: 5000
+  tls_verify: false

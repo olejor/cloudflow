@@ -22,7 +22,7 @@ CPPFLAGS := -I. -I$(CORE_DIR) $(HIREDIS_CFLAGS)
 
 BUILD_DIR := build
 
-SOURCES := cf_redis_producer.c
+SOURCES := cf_redis_producer.c cf_redis_slot.c cf_redis_cluster.c
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(SOURCES:.c=.o))
 
 LIB := $(BUILD_DIR)/libcloudflow-redis.a
@@ -60,7 +60,28 @@ $(BUILD_DIR)/cf_redis_producer_test.o: tests/cf_redis_producer_test.c | $(BUILD_
 $(TEST_BIN): $(BUILD_DIR)/cf_redis_producer_test.o $(LIB) $(CORE_LIB)
 	$(LINK.o) -o $@ $(BUILD_DIR)/cf_redis_producer_test.o $(LIB) $(CORE_LIB) $(TEST_LDLIBS)
 
-test: $(TEST_BIN)
+# cf_redis_slot_test: pure CRC16/hash-slot logic, no server or hiredis needed.
+SLOT_TEST_BIN := $(BUILD_DIR)/cf_redis_slot_test
+
+$(BUILD_DIR)/cf_redis_slot_test.o: tests/cf_redis_slot_test.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I. -c $< -o $@
+
+$(SLOT_TEST_BIN): $(BUILD_DIR)/cf_redis_slot_test.o $(BUILD_DIR)/cf_redis_slot.o
+	$(CC) $(CFLAGS) -o $@ $^ -lcunit
+
+# cf_redis_cluster_test: the pure redirect-parse logic (needs hiredis to link,
+# since cf_redis_cluster.o references it, but no server to run).
+CLUSTER_TEST_BIN := $(BUILD_DIR)/cf_redis_cluster_test
+
+$(BUILD_DIR)/cf_redis_cluster_test.o: tests/cf_redis_cluster_test.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(TEST_CPPFLAGS) -c $< -o $@
+
+$(CLUSTER_TEST_BIN): $(BUILD_DIR)/cf_redis_cluster_test.o $(BUILD_DIR)/cf_redis_cluster.o $(BUILD_DIR)/cf_redis_slot.o
+	$(CC) $(CFLAGS) -o $@ $^ $(HIREDIS_LIBS) -lcunit
+
+test: $(TEST_BIN) $(SLOT_TEST_BIN) $(CLUSTER_TEST_BIN)
+	./$(SLOT_TEST_BIN)
+	./$(CLUSTER_TEST_BIN)
 	./$(TEST_BIN)
 
 clean:

@@ -145,7 +145,7 @@ DNS row:
 Columns (the contract; `schema/cloudflow_events.sql` is the matching DDL):
 
 - **common (every row):** `event_id`, `observed_time` (a `DateTime64(9)`
-  rendered as epoch seconds with 9 decimals), `source_type`, `source_host`,
+  rendered as a UTC `"YYYY-MM-DD HH:MM:SS.fffffffff"` string), `source_type`, `source_host`,
   `capture_interface`, `event_type`, `src_ip`, `dst_ip`, `src_mac`.
 - **DHCP:** `message_type`, `client_key` (the normalized client id / chaddr, or
   the DUID hex for v6), `requested_address` / `assigned_address` (when present),

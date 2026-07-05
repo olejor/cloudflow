@@ -1,0 +1,115 @@
+# Real-delivery integration harness (project review G2).
+#
+# Infra services (redis, clickhouse, hecfake) run long with healthchecks; the
+# five app services are one-shots invoked by run.sh via `docker compose run`
+# with the binary + args as the command. All five apps share one image built
+# from ./Dockerfile (context = repo root).
+#
+# This exercises the delivery paths the plain integration script cannot: the
+# sinks make real HTTP POSTs to the fake HEC and a real INSERT into ClickHouse,
+# so libcurl, batching, retry, ack-after-2xx, and dead-letter all run for real.
+
+name: cloudflow-harness
+
+x-app-image: &app-image
+  build:
+    context: ../../..
+    dockerfile: tests/integration/realdelivery/Dockerfile
+  image: cloudflow-harness:latest
+  volumes:
+    - ./configs:/configs:ro
+    - ./work:/work
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    # An explicit user/password: the image's `default` user rejects
+    # unauthenticated HTTP INSERTs from other containers (Code 516), and prod
+    # ClickHouse is authenticated anyway. The sink authenticates with the same
+    # credentials via its user_env/password_env (secrets in env, D6).
+    environment:
+      CLICKHOUSE_USER: cloudflow
+      CLICKHOUSE_PASSWORD: cloudflow
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    # The schema DDL is auto-applied on first start: the server runs every
+    # *.sql under /docker-entrypoint-initdb.d, creating cloudflow.events.
+    volumes:
+      - ../../../sinks/cloudflow-sink-clickhouse/schema:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user cloudflow --password cloudflow -q 'SELECT 1' || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  hecfake:
+    image: python:3.12-slim
+    command: ["python3", "/app/hec_fake.py"]
+    environment:
+      CF_HEC_PORT: "8088"
+      CF_HEC_RECORD: /work/hec_received.jsonl
+      CF_HEC_FAIL_TIMES: "0"
+    volumes:
+      - ./hec_fake.py:/app/hec_fake.py:ro
+      - ./work:/work
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8088/health')\" || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # ---- one-shot app services (invoked via `docker compose run`) ------------
+  # No `command:` here: run.sh passes `<binary> -c /configs/... [--replay|--once]`
+  # as the run command so the same service definition serves every invocation.
+
+  dhcp-source:
+    <<: *app-image
+
+  dns-source:
+    <<: *app-image
+
+  splunk-sink:
+    <<: *app-image
+    environment:
+      CF_HARNESS_HEC_TOKEN: harness-hec-token
+    depends_on:
+      redis:
+        condition: service_healthy
+      hecfake:
+        condition: service_healthy
+
+  splunk-metrics-sink:
+    <<: *app-image
+    environment:
+      CF_HARNESS_HEC_TOKEN: harness-hec-token
+    depends_on:
+      redis:
+        condition: service_healthy
+      hecfake:
+        condition: service_healthy
+
+  clickhouse-sink:
+    <<: *app-image
+    environment:
+      CLICKHOUSE_USER: cloudflow
+      CLICKHOUSE_PASSWORD: cloudflow
+    depends_on:
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
