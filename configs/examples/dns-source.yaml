@@ -27,7 +27,10 @@ queues:
   # Bounded SPSC queues (D9). Capacities are element counts.
   rx_to_stage_capacity: 65536     # rx-reader -> parse+correlate event stage
   stage_to_redis_capacity: 65536  # event stage -> redis-producer
-  # What to do when a queue is full: drop_newest (default) | drop_oldest | block.
+  # What to do when a queue is full: drop_newest (default) | block. (drop_oldest
+  # is unsafe on these concurrently-consumed SPSC queues -- producer-side
+  # eviction races the consumer's tail -- so it is coerced to drop_newest with a
+  # warning.)
   on_full: drop_newest
 
 redis:

@@ -87,8 +87,11 @@ static void handle_packet(const struct tpacket3_hdr *packet, const cf_rx_reader_
     uint32_t captured;
     uint32_t copy_len;
 
-    memset(&item, 0, sizeof(item));
-
+    /* Initialize every header field explicitly rather than memset-ing the whole
+     * ~2 KB struct on every packet: the tail of item.data past captured_len is
+     * never read (consumers bound their reads by captured_len), so zeroing it
+     * is pure waste in the RX hot path. */
+    item.flags = 0;
     item.observed_time_unix_nano =
         (int64_t)packet->tp_sec * 1000000000LL + (int64_t)packet->tp_nsec;
     item.packet_len = packet->tp_len;
@@ -106,6 +109,7 @@ static void handle_packet(const struct tpacket3_hdr *packet, const cf_rx_reader_
 
     if (cfg->stats) {
         CF_ATOMIC_INC(cfg->stats->packets_received_total);
+        CF_ATOMIC_ADD(cfg->stats->rx_bytes_copied_total, (unsigned long)copy_len);
         if (item.flags & CF_PACKET_FLAG_TRUNCATED)
             CF_ATOMIC_INC(cfg->stats->packets_truncated_total);
     }

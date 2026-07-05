@@ -17,7 +17,7 @@ void cf_stats_report(cf_source_stats_t *stats, cf_redis_stats_t *redis_stats,
     /* One value buffer per key rendered into the single cf_log() call: the
      * pointers must all stay live until cf_log() returns, so each needs its
      * own buffer (cf_log_u64 renders into the buffer it is handed). */
-    char b_recv[24], b_kdrop[24], b_rxqd[24], b_rxqdep[24], b_trunc[24];
+    char b_recv[24], b_kdrop[24], b_rxqd[24], b_rxqdep[24], b_trunc[24], b_rxbytes[24];
     char b_efmt[24], b_efmt4[24], b_efmt6[24], b_skip[24], b_warn[24];
     char b_oversz[24], b_fqdep[24], b_fqdrop[24];
     char b_xadd[24], b_xerr[24], b_xlost[24], b_recon[24], b_xavg[24];
@@ -28,6 +28,7 @@ void cf_stats_report(cf_source_stats_t *stats, cf_redis_stats_t *redis_stats,
     unsigned long packets_dropped = read_counter(&stats->rx.packets_dropped_total, reset_on_report);
     unsigned long rx_queue_drop = read_counter(&stats->rx.rx_queue_drop_total, reset_on_report);
     unsigned long packets_truncated = read_counter(&stats->rx.packets_truncated_total, reset_on_report);
+    unsigned long rx_bytes_copied = read_counter(&stats->rx.rx_bytes_copied_total, reset_on_report);
 
     /* formatter counters. */
     unsigned long events_formatted = read_counter(&stats->events_formatted_total, reset_on_report);
@@ -64,6 +65,7 @@ void cf_stats_report(cf_source_stats_t *stats, cf_redis_stats_t *redis_stats,
            "rx_queue_drop_total", cf_log_u64(b_rxqd, sizeof(b_rxqd), rx_queue_drop),
            "rx_queue_depth", cf_log_u64(b_rxqdep, sizeof(b_rxqdep), rx_queue_depth),
            "packets_truncated_total", cf_log_u64(b_trunc, sizeof(b_trunc), packets_truncated),
+           "rx_bytes_copied_total", cf_log_u64(b_rxbytes, sizeof(b_rxbytes), rx_bytes_copied),
            "events_formatted_total", cf_log_u64(b_efmt, sizeof(b_efmt), events_formatted),
            "events_formatted_dhcpv4_total",
            cf_log_u64(b_efmt4, sizeof(b_efmt4), events_formatted_v4),
