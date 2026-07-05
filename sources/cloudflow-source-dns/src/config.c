@@ -135,7 +135,15 @@ static int parse_on_full(const char *s, cf_queue_full_policy_t *out)
         return 0;
     }
     if (strcmp(s, "drop_oldest") == 0) {
-        *out = CF_ONFULL_DROP_OLDEST;
+        /* drop_oldest evicts by advancing the queue's tail from the producer
+         * thread, but tail is the consumer's index -- two writers to tail on a
+         * concurrently-consumed SPSC queue is a data race. Accept the key but
+         * fall back to the safe drop_newest. */
+        cf_log(CF_LOG_WARN,
+               "queues.on_full=drop_oldest is unsafe on the pipeline SPSC queues "
+               "(producer-side eviction races the consumer's tail); using drop_newest",
+               NULL);
+        *out = CF_ONFULL_DROP_NEWEST;
         return 0;
     }
     if (strcmp(s, "block") == 0) {
