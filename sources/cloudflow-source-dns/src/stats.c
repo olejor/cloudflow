@@ -17,7 +17,7 @@ void cf_dns_stats_report(cf_dns_source_stats_t *stats, cf_redis_stats_t *redis_s
     /* One value buffer per key rendered into the single cf_log() call: the
      * pointers must all stay live until cf_log() returns, so each needs its own
      * buffer (cf_log_u64 renders into the buffer it is handed). */
-    char b_recv[24], b_kdrop[24], b_rxqd[24], b_rxqdep[24], b_trunc[24], b_rxbytes[24];
+    char b_recv[24], b_kdrop[24], b_rxqd[24], b_rxqdep[24], b_trunc[24], b_rxbytes[24], b_snaptr[24];
     char b_skip[24], b_pfail[24], b_tcpp[24];
     char b_qpar[24], b_rpar[24];
     char b_emit[24], b_emcf[24], b_embk[24], b_emru[24], b_emun[24];
@@ -33,6 +33,8 @@ void cf_dns_stats_report(cf_dns_source_stats_t *stats, cf_redis_stats_t *redis_s
     unsigned long packets_truncated =
         read_counter(&stats->rx.packets_truncated_total, reset_on_report);
     unsigned long rx_bytes_copied = read_counter(&stats->rx.rx_bytes_copied_total, reset_on_report);
+    unsigned long packets_snap_truncated =
+        read_counter(&stats->rx.packets_snap_truncated_total, reset_on_report);
 
     /* decap / parse / classify. */
     unsigned long packets_skipped = read_counter(&stats->packets_skipped_total, reset_on_report);
@@ -95,6 +97,8 @@ void cf_dns_stats_report(cf_dns_source_stats_t *stats, cf_redis_stats_t *redis_s
            "rx_queue_depth", cf_log_u64(b_rxqdep, sizeof(b_rxqdep), rx_queue_depth),
            "packets_truncated_total", cf_log_u64(b_trunc, sizeof(b_trunc), packets_truncated),
            "rx_bytes_copied_total", cf_log_u64(b_rxbytes, sizeof(b_rxbytes), rx_bytes_copied),
+           "packets_snap_truncated_total",
+           cf_log_u64(b_snaptr, sizeof(b_snaptr), packets_snap_truncated),
            "packets_skipped_total", cf_log_u64(b_skip, sizeof(b_skip), packets_skipped),
            "decode_parse_failure_total",
            cf_log_u64(b_pfail, sizeof(b_pfail), decode_parse_failure),

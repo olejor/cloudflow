@@ -58,6 +58,11 @@ typedef struct {
     size_t mem_size;
     uint32_t block_size;
     uint32_t block_count;
+    /* TPACKET_V3 fills blocks strictly in order, so the reader resumes its scan
+     * from the last block it handed back to the kernel instead of rescanning
+     * from block 0 on every wake -- cheap at 12 blocks, but it keeps the wake
+     * cost O(ready blocks) rather than O(block_count) as the ring grows. */
+    uint32_t next_block;
     struct iovec *iov;
 } cf_rx_ring_t;
 
@@ -96,8 +101,16 @@ static void handle_packet(const struct tpacket3_hdr *packet, const cf_rx_reader_
         (int64_t)packet->tp_sec * 1000000000LL + (int64_t)packet->tp_nsec;
     item.packet_len = packet->tp_len;
 
+    /* Bound the copy by the configured snaplen (if any), then by the hard
+     * packet-item ceiling. A snaplen shorter than the frame is a deliberate
+     * "copy only what the parser needs" and is tracked separately from a frame
+     * that overflows CLOUDFLOW_PACKET_MAX_SIZE. */
     captured = packet->tp_snaplen;
     copy_len = captured;
+    if (cfg->copy_snaplen != 0 && copy_len > cfg->copy_snaplen) {
+        copy_len = cfg->copy_snaplen;
+        item.flags |= CF_PACKET_FLAG_TRUNCATED | CF_PACKET_FLAG_SNAP_TRUNCATED;
+    }
     if (copy_len > CLOUDFLOW_PACKET_MAX_SIZE) {
         copy_len = CLOUDFLOW_PACKET_MAX_SIZE;
         item.flags |= CF_PACKET_FLAG_TRUNCATED;
@@ -112,6 +125,8 @@ static void handle_packet(const struct tpacket3_hdr *packet, const cf_rx_reader_
         CF_ATOMIC_ADD(cfg->stats->rx_bytes_copied_total, (unsigned long)copy_len);
         if (item.flags & CF_PACKET_FLAG_TRUNCATED)
             CF_ATOMIC_INC(cfg->stats->packets_truncated_total);
+        if (item.flags & CF_PACKET_FLAG_SNAP_TRUNCATED)
+            CF_ATOMIC_INC(cfg->stats->packets_snap_truncated_total);
     }
 
     (void)cf_queue_push_policy(cfg->out, &item, sizeof(item), cfg->on_full,
@@ -313,14 +328,20 @@ static void rx_reader_loop(cf_rx_reader_state_t *state)
         if (events[0].data.fd != state->ring.fd)
             continue;
 
+        /* Process ready blocks in order from the cursor, stopping at the first
+         * block the kernel still owns (blocks fill sequentially, so a
+         * kernel-owned block means none after it are ready yet). The count
+         * bound guards against spinning if every block is ready at once. */
         for (i = 0; i < state->ring.block_count; i++) {
-            struct tpacket_block_desc *block = state->ring.iov[i].iov_base;
+            struct tpacket_block_desc *block =
+                state->ring.iov[state->ring.next_block].iov_base;
 
             if (!block_is_ready(block))
-                continue;
+                break;
 
             block_walk(block, &state->cfg);
             block_mark_done(block);
+            state->ring.next_block = (state->ring.next_block + 1) % state->ring.block_count;
         }
     }
 

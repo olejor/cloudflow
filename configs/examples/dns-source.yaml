@@ -18,6 +18,11 @@ capture:
   interface: eth0
   # Only "rxring" is supported; any other value is a fatal config error.
   method: rxring
+  # Bytes copied out of the capture ring per frame (the parser only needs the
+  # headers + DNS message). Frames longer than this are copied truncated and
+  # counted in packets_snap_truncated_total -- raise it if that climbs. For DNS,
+  # keep it >= a full UDP/53 answer (and note large TCP/53 responses may exceed
+  # it). 0 = copy up to the 2048-byte hard maximum.
   snaplen: 1500
   # Informational only (DNS-D1): the builtin VLAN-aware udp/53 + tcp/53 cBPF
   # filter is always used regardless of this string.

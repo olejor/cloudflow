@@ -41,6 +41,15 @@ typedef struct {
     cf_rx_stats_t *stats;       /* required */
     cf_queue_full_policy_t on_full;
 
+    /* Copy at most this many bytes of each frame into the packet item (the
+     * configured capture snaplen). 0 = copy up to CLOUDFLOW_PACKET_MAX_SIZE.
+     * The kernel still delivers the whole captured frame; this bounds only what
+     * CloudFlow copies downstream, so the parser gets the bytes it needs
+     * without moving a full MTU for a tiny DNS/DHCP packet. Frames longer than
+     * the limit are flagged truncated and counted in
+     * packets_snap_truncated_total. */
+    uint32_t copy_snaplen;
+
     /* Pre-assembled cBPF program attached via SO_ATTACH_FILTER before the
      * ring is set up. When `bpf` is NULL or `bpf_len` is 0, no filter is
      * attached and every frame on the interface is captured. */
